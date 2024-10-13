@@ -886,6 +886,41 @@ Return:
 	On success, zero is returned. On error, -1 is returned, and errno is set to indicate the error.
 ---
 
+### `open` - open and possibly create a file
+
+Synopsis:
+
+```C
+#include <fcntl.h>
+
+int open(const char *pathname, int flags);
+int open(const char *pathname, int flags, mode_t mode);
+```
+
+Description:
+
+	The open() system call opens the file specified by pathname.  If the specified file does not exist, it may op‐
+	tionally (if O_CREAT is specified in flags) be created by open().
+
+	The  return value of open() is a file descriptor, a small, nonnegative integer that is an index to an entry in
+	the process’s table of open file descriptors.   The  file  descriptor  is  used  in  subsequent  system  calls
+	(read(2),  write(2),  lseek(2),  fcntl(2), etc.) to refer to the open file.  The file descriptor returned by a
+	successful call will be the lowest‐numbered file descriptor not currently open for the process.
+
+	By default, the new file descriptor is set to remain open across an execve(2) (i.e., the FD_CLOEXEC  file  de‐
+	scriptor  flag  described in fcntl(2) is initially disabled); the O_CLOEXEC flag, described below, can be used
+	to change this default.  The file offset is set to the beginning of the file (see lseek(2)).
+
+	The  argument  flags must include one of the following access modes: O_RDONLY, O_WRONLY, or O_RDWR.  These re‐
+	quest opening the file read‐only, write‐only, or read/write, respectively.
+
+Return:
+
+	On success, open() returns the new file descriptor (a nonnegative integer).   On  error,
+	-1 is returned and errno is set to indicate the error.
+---
+
+
 ### `opendir` - open a directory
 
 Synopsis:
