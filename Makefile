@@ -1,6 +1,8 @@
 NAME = webserv
-SRCS = srcs/main.cpp srcs/ConfigParser.cpp srcs/Server.cpp
+
+SRCS = $(shell find ./srcs -type f -name *.cpp)
 OBJS = $(SRCS:.cpp=.o)
+
 CXX = clang++
 CXXFLAGS = -Wall -Wextra -Werror -std=c++98
 

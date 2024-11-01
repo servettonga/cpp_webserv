@@ -5,110 +5,236 @@
 /*                                                    +:+ +:+         +:+     */
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
-/*   Created: 2024/10/26 12:27:08 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/10/28 15:47:12 by sehosaf          ###   ########.fr       */
+/*   Created: 2024/10/31 13:04:01 by sehosaf           #+#    #+#             */
+/*   Updated: 2024/11/01 22:54:24 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "Server.hpp"
-#include <iostream>
+#include <stdexcept>
+#include <cstring>
 #include <unistd.h>
 #include <fcntl.h>
-#include <cstring>
-#include <cstdlib>
 #include <cerrno>
+#include <arpa/inet.h>
+#include <sys/socket.h>
+#include <algorithm>
 
-Server::Server(const std::map<std::string, std::string> &config) : config(config), listen_fd(-1) {}
+/*
+	Server class implementation:
+	- The Server class initializes by parsing the configuration file
+ 	and setting up listening sockets based on the configurations provided.
+	- The run() method enters the main loop, using poll() to monitor sockets for incoming connections and data.
+	- When a new connection is accepted, it's added to the list of client connections,
+ 	and the corresponding server configuration is associated with it.
+	- The handleClientData() method reads incoming data from client sockets and checks for complete HTTP requests.
+	- Once a complete request is received, it delegates the handling to the RequestHandler class.
+	- Error handling is included to manage socket errors and client disconnections gracefully.
+ */
 
-bool Server::initialize() {
-	return setupSocket();
+Server::Server(const std::string& configFile)
+		: _serverConfigs(ConfigParser(configFile).getServerConfigs()),
+		  _requestHandler(_serverConfigs)
+{
+	if (_serverConfigs.empty()) {
+		throw std::runtime_error("No server configurations found");
+	}
+	setupListeningSockets();
 }
 
-bool Server::setupSocket() {
-	listen_fd = socket(AF_INET, SOCK_STREAM, 0);
-	if (listen_fd < 0) {
-		std::cerr << "Socket creation failed: " << strerror(errno) << std::endl;
-		return false;
+Server::~Server() {
+	// Clean up all open sockets
+	std::vector<ListenSocket>::iterator it;
+	for (it = _listenSockets.begin(); it != _listenSockets.end(); ++it) {
+		if (it->socketFd >= 0) {
+			close(it->socketFd);
+		}
 	}
 
-	int opt = 1;
-	if (setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
-		std::cerr << "Set socket options failed: " << strerror(errno) << std::endl;
-		return false;
+	// Clean up client connections
+	std::map<int, std::string>::iterator clientIt;
+	for (clientIt = _clientBuffers.begin(); clientIt != _clientBuffers.end(); ++clientIt) {
+		if (clientIt->first >= 0) {
+			close(clientIt->first);
+		}
 	}
+}
 
-	sockaddr_in addr = {};
-	addr.sin_family = AF_INET;
-	addr.sin_addr.s_addr = INADDR_ANY;
-	addr.sin_port = htons(atoi(config["port"].c_str()));
+void Server::setupListeningSockets() {
+	std::vector<ServerConfig>::iterator it;
+	for (it = _serverConfigs.begin(); it != _serverConfigs.end(); ++it) {
+		int socketFd = socket(AF_INET, SOCK_STREAM, 0);
+		if (socketFd < 0) {
+			throw std::runtime_error("Failed to create socket");
+		}
 
-	if (bind(listen_fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0) {
-		std::cerr << "Bind failed: " << strerror(errno) << std::endl;
-		return false;
+		setSocketOptions(socketFd);
+		if (!setNonBlocking(socketFd)) {
+			close(socketFd);
+			throw std::runtime_error("Failed to set socket non-blocking");
+		}
+
+		sockaddr_in addr = {};
+		std::memset(&addr, 0, sizeof(addr));
+		addr.sin_family = AF_INET;
+		addr.sin_port = htons(it->port);
+		addr.sin_addr.s_addr = inet_addr(it->host.c_str());
+
+		if (bind(socketFd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+			close(socketFd);
+			throw std::runtime_error("Failed to bind socket");
+		}
+
+		if (listen(socketFd, SOMAXCONN) < 0) {
+			close(socketFd);
+			throw std::runtime_error("Failed to listen on socket");
+		}
+
+		ListenSocket listenSocket;
+		listenSocket.socketFd = socketFd;
+		listenSocket.host = it->host;
+		listenSocket.port = it->port;
+		listenSocket.serverConfig = &(*it);
+		_listenSockets.push_back(listenSocket);
+
+		addToPollFds(socketFd, POLLIN);
 	}
-
-	if (listen(listen_fd, 10) < 0) {
-		std::cerr << "Listen failed: " << strerror(errno) << std::endl;
-		return false;
-	}
-
-	fcntl(listen_fd, F_SETFL, O_NONBLOCK);
-
-	pollfd pfd = {};
-	pfd.fd = listen_fd;
-	pfd.events = POLLIN;
-	poll_fds.push_back(pfd);
-
-	std::cout << "Server is listening on port " << config["port"] << std::endl;
-	return true;
 }
 
 void Server::run() {
 	while (true) {
-		const int ret = poll(&poll_fds[0], poll_fds.size(), -1);
-		if (ret < 0) {
-			std::cerr << "Poll error: " << strerror(errno) << std::endl;
-			continue;
+		int pollResult = poll(&_pollFds[0], _pollFds.size(), -1);
+		if (pollResult < 0) {
+			if (errno == EINTR) {
+				continue;
+			}
+			throw std::runtime_error("Poll failed");
 		}
 
-		for (size_t i = 0; i < poll_fds.size(); ++i) {
-			if (poll_fds[i].revents & POLLIN) {
-				if (poll_fds[i].fd == listen_fd) {
-					handleConnections();
-				} else {
-					handleRequest(poll_fds[i].fd);
+		std::vector<struct pollfd>::iterator it;
+		for (it = _pollFds.begin(); it != _pollFds.end(); ++it) {
+			if (it->revents == 0) {
+				continue;
+			}
+
+			if (it->revents & POLLIN) {
+				// Check if it's a listening socket
+				bool isListening = false;
+				std::vector<ListenSocket>::iterator listenIt;
+				for (listenIt = _listenSockets.begin(); listenIt != _listenSockets.end(); ++listenIt) {
+					if (it->fd == listenIt->socketFd) {
+						acceptNewConnection(it->fd);
+						isListening = true;
+						break;
+					}
 				}
+
+				if (!isListening) {
+					handleClientData(it->fd);
+				}
+			}
+
+			if (it->revents & (POLLHUP | POLLERR | POLLNVAL)) {
+				closeConnection(it->fd);
 			}
 		}
 	}
 }
 
-void Server::handleConnections() {
-	sockaddr_in client_addr = {};
-	socklen_t          client_len = sizeof(client_addr);
-	const int          client_fd = accept(listen_fd, reinterpret_cast<sockaddr *>(&client_addr), &client_len);
-	if (client_fd < 0) return;
+void Server::acceptNewConnection(int listenFd) {
+	sockaddr_in clientAddr = {};
+	socklen_t clientLen = sizeof(clientAddr);
 
-	fcntl(client_fd, F_SETFL, O_NONBLOCK);
-
-	pollfd pfd = {};
-	pfd.fd = client_fd;
-	pfd.events = POLLIN;
-	poll_fds.push_back(pfd);
-}
-
-void Server::handleRequest(const int client_fd) {
-	char      buffer[1024];
-	const int bytes_read = read(client_fd, buffer, sizeof(buffer) - 1);
-	if (bytes_read <= 0) {
-		close(client_fd);
+	int clientFd = accept(listenFd, (struct sockaddr*)&clientAddr, &clientLen);
+	if (clientFd < 0) {
 		return;
 	}
 
-	buffer[bytes_read] = '\0';
-	std::string request(buffer);
+	if (!setNonBlocking(clientFd)) {
+		close(clientFd);
+		return;
+	}
 
-	const std::string response = "HTTP/1.1 200 OK\r\nContent-Length: 13\r\n\r\nHello, world!";
-	write(client_fd, response.c_str(), response.size());
-	close(client_fd);
+	// Find the corresponding server config
+	std::vector<ListenSocket>::iterator it;
+	for (it = _listenSockets.begin(); it != _listenSockets.end(); ++it) {
+		if (it->socketFd == listenFd) {
+			_clientToServerConfig[clientFd] = it->serverConfig;
+			break;
+		}
+	}
+
+	addToPollFds(clientFd, POLLIN);
+	_clientBuffers[clientFd] = "";
 }
+
+void Server::handleClientData(int clientFd) {
+	char buffer[4096];
+	ssize_t bytesRead = recv(clientFd, buffer, sizeof(buffer), 0);
+
+	if (bytesRead <= 0) {
+		closeConnection(clientFd);
+		return;
+	}
+
+	_clientBuffers[clientFd].append(buffer, bytesRead);
+
+	// Check if we have a complete HTTP request
+	std::string& clientBuffer = _clientBuffers[clientFd];
+	size_t pos = clientBuffer.find("\r\n\r\n");
+	if (pos != std::string::npos) {
+		// Handle the complete request
+		_requestHandler.handleRequest(clientBuffer, clientFd);
+		clientBuffer.clear();
+	}
+}
+
+void Server::closeConnection(int clientFd) {
+	close(clientFd);
+	removeFromPollFds(clientFd);
+	_clientToServerConfig.erase(clientFd);
+	_clientBuffers.erase(clientFd);
+}
+
+void Server::addToPollFds(int fd, short events) {
+	pollfd pfd = {};
+	pfd.fd = fd;
+	pfd.events = events;
+	pfd.revents = 0;
+	_pollFds.push_back(pfd);
+}
+
+void Server::removeFromPollFds(int fd) {
+	std::vector<struct pollfd>::iterator it;
+	for (it = _pollFds.begin(); it != _pollFds.end(); ++it) {
+		if (it->fd == fd) {
+			_pollFds.erase(it);
+			break;
+		}
+	}
+}
+
+bool Server::setNonBlocking(int fd) {
+	int flags = fcntl(fd, F_GETFL, 0);
+	if (flags < 0) {
+		return false;
+	}
+	return fcntl(fd, F_SETFL, flags | O_NONBLOCK) != -1;
+}
+
+void Server::setSocketOptions(int socketFd) {
+	int opt = 1;
+	if (setsockopt(socketFd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
+		close(socketFd);
+		throw std::runtime_error("Failed to set socket options");
+	}
+}
+
+/*
+	TODO: Ensuring Non-Blocking I/O
+	Make sure that all read and write operations are performed after checking socket readiness with poll().
+
+	Important:
+	- Do not perform any read or write operations on a socket unless poll() indicates that it is ready.
+	- This adherence is crucial to meet the project requirements.
+ */

@@ -1,4 +1,4 @@
-# Brief overview and high-level guide for the implementation 
+# Brief overview and a high-level guide for the implementation 
 
 ```mermaid
 sequenceDiagram
