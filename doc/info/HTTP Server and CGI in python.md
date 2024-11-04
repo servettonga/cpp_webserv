@@ -77,7 +77,7 @@ Serving HTTP on :: port 8000 (http://[::]:8000/) ...
 
 By default, Python serves the files located in your [current working directory](https://en.wikipedia.org/wiki/Working_directory) where you executed the command to start the server. So, when you visit the home address (`/`) of your server in a web browser, then you’ll see all the files and folders in the corresponding directory:
 
-![web_browser](./img/web_browser.jpeg)
+![web_browser](img/web_browser.jpeg)
 
 Here, you see the content of your [home directory](https://en.wikipedia.org/wiki/Home_directory), which is where the server must’ve been started in the command line. Clicking one of the displayed links will send another request to the server, letting you navigate the directory tree in the browser.
 
@@ -534,7 +534,7 @@ While a self-signed certificate will encrypt your data, web browsers won’t tru
 
 Go ahead, update the paths in `secure_server.py` so that they point to your certificate and private key, and then start the server. You should see something odd after navigating your browser to the server’s address:
 
-![self_signed](./img/self_signed.jpeg)
+![self_signed](img/self_signed.jpeg)
 
 When you visit a page that uses a self-signed certificate, most web browsers will usually display a warning about an insecure connection, letting you decide whether to proceed to the website or not. In the screenshot above, you see how such a warning may look in [Google Chrome](https://www.google.com/chrome/), although other browsers will show a similar message.
 

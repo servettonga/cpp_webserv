@@ -6,12 +6,12 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 23:07:40 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/01 19:35:17 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/11/04 10:31:42 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
-#ifndef HTTPREQUEST_HPP
-#define HTTPREQUEST_HPP
+#ifndef HTTP_REQUEST_HPP
+#define HTTP_REQUEST_HPP
 
 #include <string>
 #include <map>
@@ -19,29 +19,29 @@
 
 class HTTPRequest {
 	public:
-		explicit HTTPRequest(const std::string& rawRequest);
+		// Constructors and Destructor
+		HTTPRequest();
+		explicit HTTPRequest(const std::string &rawRequest);
 		~HTTPRequest();
 
-		// Getters for request components
-		const std::string& getMethod() const;
-		const std::string& getURI() const;
-		const std::string& getVersion() const;
-		const std::map<std::string, std::string>& getHeaders() const;
-		const std::string& getBody() const;
-		const std::string& getBoundary() const;
-
-		// Parsing functions
-		void parseRequest(const std::string& rawRequest);
-		void parseHeaders(const std::string& headerSection);
-		void parseBody(const std::string& bodySection);
-
-		// Form data structure
+		// Form data structure for multipart/form-data
 		struct FormDataPart {
 			std::map<std::string, std::string> headers;
 			std::string content;
 		};
 
-		// Multipart form data parsing
+		// Getters
+		const std::string &getMethod() const;
+		const std::string &getURI() const;
+		const std::string &getVersion() const;
+		const std::map<std::string, std::string> &getHeaders() const;
+		const std::string &getBody() const;
+		const std::string &getBoundary() const;
+
+		// Parsing methods
+		void parseRequest(const std::string &rawRequest);
+		void parseHeaders(const std::string &headerSection);
+		void parseBody(const std::string &bodySection);
 		std::vector<FormDataPart> parseMultipartFormData();
 
 	private:
@@ -51,13 +51,15 @@ class HTTPRequest {
 		std::string _version;
 		std::map<std::string, std::string> _headers;
 		std::string _body;
-
-		// Boundary string for multipart/form-data
 		std::string _boundary;
 
-		// Helper functions
-		void parseRequestLine(const std::string& requestLine);
-		void parseFormDataPart(const std::string& partData, FormDataPart& part);
+		// Helper methods
+		void parseRequestLine(const std::string &requestLine);
+		void parseFormDataPart(const std::string &partData, FormDataPart &part);
+		static bool isValidMethod(const std::string &method) ;
+		void extractQueryString();
+		void normalizePath();
+		static std::string decodeURIComponent(const std::string &encoded);
 };
 
-#endif // HTTPREQUEST_HPP
+#endif
