@@ -6,10 +6,11 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/11/03 22:50:59 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/03 22:52:03 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/11/10 15:39:24 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
+#include <sstream>
 #include "Utils.hpp"
 
 /*
@@ -36,6 +37,30 @@
 	4. Return trimmed string
 */
 
+std::string Utils::StringUtils::numToString(int value) {
+	std::stringstream ss;
+	ss << value;
+	return ss.str();
+}
+
+std::string Utils::StringUtils::numToString(long value) {
+	std::stringstream ss;
+	ss << value;
+	return ss.str();
+}
+
+std::string Utils::StringUtils::numToString(unsigned long value) {
+	std::stringstream ss;
+	ss << value;
+	return ss.str();
+}
+
+std::string Utils::StringUtils::numToString(long long value) {
+	std::stringstream ss;
+	ss << value;
+	return ss.str();
+}
+
 /*
 	FileUtils Implementation
 */
@@ -60,12 +85,21 @@
 	TimeUtils Implementation
 */
 
-/*
-	getCurrentTime():
-	1. Get current time
-	2. Format according to ISO 8601
-	3. Return formatted string
-*/
+std::string Utils::TimeUtils::getCurrentTime() {
+	/*
+		getCurrentTime():
+		1. Get current time
+		2. Format according to ISO 8601
+		3. Return formatted string
+	*/
+	time_t now = time(0);
+	struct tm tstruct;
+	char buf[80];
+	tstruct = *localtime(&now);
+	strftime(buf, sizeof(buf), "%Y-%m-%d %X", &tstruct);
+	return buf;
+}
+
 
 /*
 	getHTTPDate():

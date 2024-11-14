@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 13:04:01 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/04 19:09:18 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/11/06 19:55:53 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -17,6 +17,7 @@
 #include <set>
 #include <string>
 #include <cstdlib>
+#include <sys/select.h>
 #include "ServerConfig.hpp"
 #include "../http/HTTPRequest.hpp"
 #include "../http/Response.hpp"
@@ -24,7 +25,7 @@
 class Server {
 	public:
 		// Constructor and Destructor
-		explicit Server(int port, std::string host = "0.0.0.0");
+		explicit Server(int port, const std::string &host = "0.0.0.0");
 		~Server();
 
 		// Main server operations
@@ -39,9 +40,9 @@ class Server {
 		std::string _host;
 
 		// File descriptor sets for select()
-		fd_set _masterSet;
-		fd_set _readSet;
-		fd_set _writeSet;
+		fd_set _masterSet; // Tracks all file descriptors
+		fd_set _readSet; // Monitors for read events
+		fd_set _writeSet; // Monitors for write events
 		int _maxFd;
 
 		// Client state tracking
@@ -54,8 +55,8 @@ class Server {
 		std::map<int, ClientState> _clients;
 
 		// Socket setup methods
-		void initializeSocket();
-		void setNonBlocking(int sockfd);
+		bool initializeSocket();
+		static void setNonBlocking(int sockfd);
 
 		// Connection handling methods
 		void handleNewConnection();
@@ -64,7 +65,7 @@ class Server {
 		void closeConnection(int clientFd);
 
 		// Request/Response methods
-		bool processRequest(int clientFd, ClientState &client);
+		void processRequest(int clientFd, Server::ClientState &client);
 		void sendResponse(int clientFd, ClientState &client);
 		void sendErrorResponse(int clientFd, int statusCode, const std::string &message);
 
@@ -79,7 +80,7 @@ class Server {
 
 		// Helper methods
 		void updateMaxFd();
-		bool isRequestComplete(const std::string &request);
+		static bool isRequestComplete(const std::string &request);
 };
 
 #endif

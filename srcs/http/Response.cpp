@@ -3,25 +3,20 @@
 /*                                                        :::      ::::::::   */
 /*   Response.cpp                                       :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: jdepka <jdepka@student.42.fr>              +#+  +:+       +#+        */
+/*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 20:07:58 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/27 17:11:48 by jdepka           ###   ########.fr       */
+/*   Updated: 2024/11/13 22:56:26 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "Response.hpp"
+#include "../utils/Utils.hpp"
+#include <algorithm>
 
-// Helper function to get current date in HTTP format
-static std::string getCurrentDate() {
-    time_t now = time(nullptr);
-    tm *gmt = gmtime(&now);
-    char buf[128];
-    strftime(buf, sizeof(buf), "%a, %d %b %Y %H:%M:%S GMT", gmt);
-    return std::string(buf);
-}
+using namespace Utils;
 
-Response::Response() : _statusCode(200) {
+Response::Response() {
 	/*
 		Constructor:
 		1. Set default status code (200)
@@ -31,10 +26,11 @@ Response::Response() : _statusCode(200) {
 		   - Server
 		   - Connection
 	*/
+	_statusCode = 200;
 	setDefaultHeaders();
 }
 
-Response::Response(int statusCode) {
+Response::Response(int statusCode) : _statusCode() {
 	/*
 		Response(statusCode):
 		1. Validate status code
@@ -47,141 +43,70 @@ Response::Response(int statusCode) {
 		Note: Reuse logic from default constructor
 	*/
 	setStatusCode(statusCode);
-    setDefaultHeaders();
+	setDefaultHeaders();
 }
 
-Response::~Response() {}
+Response::~Response() {
+
+}
 
 void Response::setStatusCode(int code) {
 	/*
 		setStatusCode(code):
 		1. Validate status code
 		2. Store status code
-		3. Update status text - not needed since status text is based on status code
+		3. Update status text
 	*/
-	if (!isValidStatusCode(code)) {
-        throw std::invalid_argument("Invalid status code");
-    }
-    _statusCode = code;
+	if (code >= 100 && code < 600) {
+		_statusCode = code;
+	} else {
+		_statusCode = 500;
+		setBody("Internal Server Error");
+	}
 }
 
 int Response::getStatusCode() const { return _statusCode; }
 
-// Helper funtion to normalize header name
-static std::string normalizeHeaderName(const std::string &name) {
-    std::string normalized;
-    bool capitalizeNext = true;
-    for (size_t i = 0; i < name.size(); ++i) {
-        char c = name[i];
-        if (c == '-') {
-            normalized += c;
-            capitalizeNext = true;
-        } else if (capitalizeNext) {
-            normalized += static_cast<char>(std::toupper(c));
-            capitalizeNext = false;
-        } else {
-            normalized += static_cast<char>(std::tolower(c));
-        }
-    }
-    return normalized;
-}
-
-// Helper function to validade Content-Length value
-static bool validateContentLength(const std::string &value) {
-	for (char c : value) {
-		if (!isdigit(c)) {
-			return false;
-		}
-	}
-	return true;
-}
-
 void Response::addHeader(const std::string &name, const std::string &value) {
-	/*
-		addHeader(name, value):
-		1. Normalize header name
-		2. Validate header value
-		3. Store in the headers map
-		4. Handle special cases:
-		   - Content-Length
-		   - Content-Type
-		   - Transfer-Encoding
-	*/
-	std::string normalizedName = normalizeHeaderName(name);
-	if (normalizedName == "Content-Length") {
-		if (!validateContentLength(value)) {
-			throw std::invalid_argument("Invalid Content-Length value: must be a number.");
-		}
-		
-	} else if (normalizedName == "Content-Type") {
-		if (!(value.find('/') != std::string::npos)) {
-			throw std::invalid_argument("Invalid Content-Type value: must be a valid MIME type.");
-		}
-	} else if (normalizedName == "Transfer-Encoding") {
-		if (value != "chunked") {
-			throw std::invalid_argument("Invalid Transfer-Encoding value: only 'chunked' is supported.");
-		}
-	}
-	_headers[normalizedName] = value;
+	if (name.empty() || name.find_first_of("\r\n\0") != std::string::npos) // Skip invalid headers
+		return ;
+	_headers[name] = value;
 }
 
 void Response::removeHeader(const std::string &name) {
-	/*
-		removeHeader(name):
-		1. Normalize header name (case-insensitive)
-		2. IF header exists:
-		   - Remove from headers map
-		   - IF Content-Length or Content-Type:
-			 Update internal state accordingly
-	*/
-	std::string normalizedName = normalizeHeaderName(name);
-		if (hasHeader(normalizedName)) {
-		_headers.erase(getHeader(normalizedName));
-		if (normalizedName == "Content-Length") {
-			setBody("");
+	std::string normalized = normalizeForComparison(name);
+	// Remove header if it exists
+	for (std::map<std::string, std::string>::iterator it = _headers.begin(); it != _headers.end(); ++it) {
+		if (it->first == normalized) {
+			_headers.erase(it);
+			if (normalized == "content-length" || normalized == "content-type") // Update internal state
+				updateContentLength();
+			return;
 		}
 	}
 }
 
 bool Response::hasHeader(const std::string &name) const {
-	/*
-		hasHeader(name):
-		1. Normalize header name
-		2. Return true if header exists in map
-		3. Return false otherwise
-		Note: Case-insensitive comparison
-	*/
-	std::string normalizedName = normalizeHeaderName(name);
-    return _headers.find(normalizedName) != _headers.end();
+	std::string normalized = normalizeForComparison(name); // For case-insensitive comparison
+	for (std::map<std::string, std::string>::const_iterator it = _headers.begin(); it != _headers.end(); ++it)
+		if (normalizeForComparison(it->first) == normalized)
+			return true;
+	return false;
 }
 
 std::string Response::getHeader(const std::string &name) const {
-	/*
-		getHeader(name):
-		1. Normalize header name
-		2. IF header exists:
-		   Return header value
-		3. ELSE:
-		   Return empty string
-		Note: Case-insensitive lookup
-	*/
-	std::string normalizedName = normalizeHeaderName(name);
-    std::map<std::string, std::string>::const_iterator it = _headers.find(normalizedName);
-    return (it != _headers.end()) ? it->second : "";
+	std::string normalized = normalizeForComparison(name);
+	for (std::map<std::string, std::string>::const_iterator it = _headers.begin(); it != _headers.end(); ++it)
+		if (normalizeForComparison(it->first) == normalized)
+			return it->second;
+	return std::string("");
 }
 
 void Response::setBody(const std::string &content) {
-	/*
-		setBody(content):
-		1. Store body content
-		2. Update Content-Length header
-		3. Set Content-Type if not set
-	*/
 	_body = content;
-    updateContentLength();
-	if (_headers.find("Content-Type") == _headers.end()) {
-        _headers["Content-Type"] = "text/html";
-    }
+	updateContentLength();
+	if (!hasHeader("Content-Type"))
+		addHeader("Content-Type", "text/plain");
 }
 
 void Response::appendBody(const std::string &content) {
@@ -193,19 +118,14 @@ void Response::appendBody(const std::string &content) {
 		   Set Content-Type if not set
 		Note: Maintains response validity
 	*/
-	if (_body == "") {
-		_body = content;
-		if (_headers.find("Content-Type") == _headers.end()) {
-			_headers["Content-Type"] = "text/html";
-		}
-	}
-	else {
-		_body += content;
-	}
-    updateContentLength();
+	(void)content;
 }
 
 const std::string &Response::getBody() const { return _body; }
+
+std::string Response::formatHeader(const std::string &name, const std::string &value) {
+	return (name + " " + value + "\r\n");
+}
 
 std::string Response::toString() const {
 	/*
@@ -216,13 +136,17 @@ std::string Response::toString() const {
 		4. Append body
 		5. Return complete response string
 	*/
-	std::ostringstream response;
-    response << "HTTP/1.1 " << _statusCode << " " << getStatusText() << "\r\n";
-    for (std::map<std::string, std::string>::const_iterator it = _headers.begin(); it != _headers.end(); ++it) {
-        response << formatHeader(it->first, it->second);
-    }
-    response << "\r\n" << _body;
-    return response.str();
+	std::string response;
+	response.reserve(1024);
+	// Status line (Only HTTP 1.1 compliant for now)
+	response += "HTTP/1.1 " + StringUtils::numToString(_statusCode) + " " + getStatusText() + "\r\n";
+	// Headers
+	for (std::map<std::string, std::string>::const_iterator it = _headers.begin(); it != _headers.end(); ++it)
+		response += it->first + ": " + it->second + "\r\n";
+	// Empty line before body
+	response += "\r\n";
+	response += _body;
+	return response;
 }
 
 std::vector<unsigned char> Response::toBinary() const {
@@ -232,8 +156,7 @@ std::vector<unsigned char> Response::toBinary() const {
 		2. Handle special characters
 		3. Return binary vector
 	*/
-	std::string response = toString();
-    return std::vector<unsigned char>(response.begin(), response.end());
+	return std::vector<unsigned char>();
 }
 
 void Response::setCookie(const std::string &name, const std::string &value,
@@ -250,19 +173,9 @@ void Response::setCookie(const std::string &name, const std::string &value,
 		   - HttpOnly
 		3. Add Set-Cookie header
 	*/
-    if (name.empty() || value.empty()) {
-        throw std::invalid_argument("Cookie name or value cannot be empty");
-    }
-    std::ostringstream cookie;
-    cookie << name << "=" << value;
-    for (const auto &option : options) {
-        if (option.first == "Expires" || option.first == "Max-Age" ||
-            option.first == "Domain" || option.first == "Path" ||
-            option.first == "Secure" || option.first == "HttpOnly") {
-            cookie << "; " << option.first << "=" << option.second;
-        }
-    }
-    addHeader("Set-Cookie", cookie.str());
+	(void)name;
+	(void)value;
+	(void)options;
 }
 
 void Response::redirect(const std::string &location, int code) {
@@ -272,15 +185,8 @@ void Response::redirect(const std::string &location, int code) {
 		2. Add Location header
 		3. Set minimal body
 	*/
-	setStatusCode(code);
-    addHeader("Location", location);
-    setBody("");
-}
-
-// Helper function for finding extenstion of a file
-static bool endsWith(const std::string &str, const std::string &suffix) {
-    if (suffix.size() > str.size()) return false;
-    return std::equal(suffix.rbegin(), suffix.rend(), str.rbegin());
+	(void)location;
+	(void)code;
 }
 
 void Response::sendFile(const std::string &filePath) {
@@ -290,34 +196,13 @@ void Response::sendFile(const std::string &filePath) {
 		2. Read file content
 		3. Set appropriate headers
 		4. Set body with file content
-		
-		5. Added handling if file is missing
 	*/
-	std::ifstream file(filePath, std::ios::binary);
-    if (!file) {
-        setStatusCode(404);
-        setBody("<h1>404 Not Found</h1>");
-        addHeader("Content-Type", "text/html");
-        addHeader("Content-Length", "23");
-        return;
-    }
-    if (endsWith(filePath, ".html")) {
-        addHeader("Content-Type", "text/html");
-    } else if (endsWith(filePath, ".txt")) {
-        addHeader("Content-Type", "text/plain");
-    } else if (endsWith(filePath, ".json")) {
-        addHeader("Content-Type", "application/json");
-    } else if (endsWith(filePath, ".xml")) {
-        addHeader("Content-Type", "application/xml");
-    } else {
-        addHeader("Content-Type", "application/octet-stream");
-    }
-    std::ostringstream content;
-    content << file.rdbuf();
-    addHeader("Content-Length", std::to_string(content.str().size()));
-    setBody(content.str());
+	(void)filePath;
 }
 
+/*
+ * @see https://developer.mozilla.org/en-US/docs/Web/HTTP/Status
+ */
 std::string Response::getStatusText() const {
 	/*
 		getStatusText():
@@ -326,33 +211,85 @@ std::string Response::getStatusText() const {
 		3. Handle unknown codes
 	*/
 	switch (_statusCode) {
-        case 200: return "OK";
-        case 201: return "Created";
-        case 204: return "No Content";
-        case 301: return "Moved Permanently";
-        case 302: return "Found";
+		// 1xx informational response
+		case 100: return "Continue";
+		case 101: return "Switching Protocols";
+		case 102: return "Processing";
+		case 103: return "Early Hints";
+		// 2xx success
+		case 200: return "OK";
+		case 201: return "Created";
+		case 202: return "Accepted";
+		case 203: return "Non-Authoritative Information";
+		case 204: return "No Content";
+		case 205: return "Reset Content";
+		case 206: return "Partial Content";
+		case 207: return "Multi-Status";
+		case 208: return "Already Reported";
+		case 226: return "IM Used";
+		// 3xx redirection
+		case 300: return "Multiple Choices";
+		case 301: return "Moved Permanently";
+		case 302: return "Found";
+		case 303: return "See Other";
 		case 304: return "Not Modified";
-        case 400: return "Bad Request";
-        case 403: return "Forbidden";
-        case 404: return "Not Found";
-        case 500: return "Internal Server Error";
-        case 502: return "Bad Gateway";
-        case 503: return "Service Unavailable";
-        default: return "Unknown";
-    }
+		case 305: return "Use Proxy";
+		case 306: return "Switch Proxy";
+		case 307: return "Temporary Redirect";
+		case 308: return "Permanent Redirect";
+		// 4xx client errors
+		case 400: return "Bad Request";
+		case 401: return "Unauthorized";
+		case 402: return "Payment Required";
+		case 403: return "Forbidden";
+		case 404: return "Not Found";
+		case 405: return "Method Not Allowed";
+		case 406: return "Not Acceptable";
+		case 407: return "Proxy Authentication Required";
+		case 408: return "Request Timeout";
+		case 409: return "Conflict";
+		case 410: return "Gone";
+		case 411: return "Length Required";
+		case 412: return "Precondition Failed";
+		case 413: return "Payload Too Large";
+		case 414: return "URI Too Long";
+		case 415: return "Unsupported Media Type";
+		case 416: return "Range Not Satisfiable";
+		case 417: return "Expectation Failed";
+		case 418: return "I'm a teapot";
+		case 421: return "Misdirected Request";
+		case 422: return "Unprocessable Content";
+		case 423: return "Locked";
+		case 424: return "Failed Dependency";
+		case 425: return "Too Early";
+		case 426: return "Upgrade Required";
+		case 428: return "Precondition Required";
+		case 429: return "Too Many Requests";
+		case 431: return "Request Header Fields Too Large";
+		case 451: return "Unavailable For Legal Reasons";
+		case 494: return "Request Header Too Large"; // Nginx
+		case 499: return "Client Closed Request"; // Nginx
+		// 5xx server errors
+		case 500: return "Internal Server Error";
+		case 501: return "Not Implemented";
+		case 502: return "Bad Gateway";
+		case 503: return "Service Unavailable";
+		case 504: return "Gateway Timeout";
+		case 505: return "HTTP Version Not Supported";
+		case 506: return "Variant Also Negotiates";
+		case 507: return "Insufficient Storage";
+		case 508: return "Loop Detected";
+		case 510: return "Not Extended";
+		case 511: return "Network Authentication Required";
+		default: return "Unknown Error";
+	}
 }
 
 void Response::setDefaultHeaders() {
-	/*
-		setDefaultHeaders():
-		1. Set Date header
-		2. Set Server header
-		3. Set Connection header
-		4. Set Content-Type default
-	*/
-	_headers["Date"] = getCurrentDate();
-    _headers["Server"] = "CustomServer/1.0";
-    _headers["Connection"] = "keep-alive";
+	_headers["Server"] = "webserv";
+	_headers["Date"] = TimeUtils::getCurrentTime();
+	_headers["Content-Type"] = "text/plain";
+	_headers["Connection"] = "keep-alive";
 }
 
 void Response::updateContentLength() {
@@ -364,42 +301,23 @@ void Response::updateContentLength() {
 		   - Chunked encoding
 		   - Empty body
 	*/
-	if (_body.empty()) {
-        _headers.erase("Content-Length");
-        _headers["Transfer-Encoding"] = "chunked";
-    } else {
-        _headers["Content-Length"] = std::to_string(_body.size());
-    }
+	// Remove any existing Content-Length
+	for (std::map<std::string, std::string>::iterator it = _headers.begin();
+		 it != _headers.end(); ++it) {
+		if (normalizeForComparison(it->first) == "content-length") {
+			_headers.erase(it);
+			break;
+		}
+	}
+	// Add new Content-Length if body not empty
+	unsigned long length = _body.length();
+	if (length > 0)
+		addHeader("Content-Length", StringUtils::numToString(length));
 }
 
-bool Response::isValidStatusCode(int code) const {
-	/*
-		isValidStatusCode(code):
-		1. Check if code is in valid range
-		2. Verify code exists in HTTP spec
-		3. Return validation result
-	*/
-	if (code < 100 || code >= 600) {
-        return false;
-    }
-    const int validCodes[] = {
-        200, 201, 204, 301, 302, 304, 400, 403, 404, 500, 502, 503
-    };
-    for (int i = 0; i < sizeof(validCodes) / sizeof(validCodes[0]); ++i) {
-        if (code == validCodes[i]) {
-            return true;
-        }
-    }
-    return false;
-}
-
-std::string Response::formatHeader(const std::string &name, const std::string &value) const {
-	/*
-		formatHeader(name, value):
-		1. Normalize header name
-		2. Return "Name: value\r\n"
-		Note: Used by toString() for consistent formatting
-	*/
-	std::string normalizedName = normalizeHeaderName(name);
-    return normalizedName + ": " + value + "\r\n";
+std::string Response::normalizeForComparison(const std::string &name) {
+	std::string normalized = name;
+	for (std::string::iterator it = normalized.begin(); it != normalized.end(); ++it)
+		*it = std::tolower(*it);
+	return normalized;
 }
