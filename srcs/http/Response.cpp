@@ -6,210 +6,82 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 20:07:58 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/13 22:56:26 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/11/24 12:49:21 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "Response.hpp"
 #include "../utils/Utils.hpp"
 #include <algorithm>
+#include <cstdio>
 
 using namespace Utils;
 
-Response::Response() {
-	/*
-		Constructor:
-		1. Set default status code (200)
-		2. Initialize empty headers map
-		3. Set default headers:
-		   - Date
-		   - Server
-		   - Connection
-	*/
-	_statusCode = 200;
-	setDefaultHeaders();
-}
-
-Response::Response(int statusCode) : _statusCode() {
-	/*
-		Response(statusCode):
-		1. Validate status code
-		2. Set status code and text
-		3. Initialize empty headers map
-		4. Set default headers:
-		   - Date: current UTC time
-		   - Server: server name
-		   - Connection: keep-alive
-		Note: Reuse logic from default constructor
-	*/
-	setStatusCode(statusCode);
-	setDefaultHeaders();
-}
-
-Response::~Response() {
-
+Response::Response(int statusCode, const std::string &serverName) : _statusCode(statusCode) {
+	_headers["Server"] = serverName;
+	_headers["Content-Type"] = "text/plain";
 }
 
 void Response::setStatusCode(int code) {
-	/*
-		setStatusCode(code):
-		1. Validate status code
-		2. Store status code
-		3. Update status text
-	*/
-	if (code >= 100 && code < 600) {
+	if (code >= 100 && code < 600)
 		_statusCode = code;
-	} else {
-		_statusCode = 500;
-		setBody("Internal Server Error");
-	}
 }
 
-int Response::getStatusCode() const { return _statusCode; }
+void Response::setBody(const std::string& body) {
+	_body = body;
+	updateContentLength();
+}
 
-void Response::addHeader(const std::string &name, const std::string &value) {
+void Response::addHeader(const std::string& name, const std::string& value) {
 	if (name.empty() || name.find_first_of("\r\n\0") != std::string::npos) // Skip invalid headers
 		return ;
 	_headers[name] = value;
 }
 
-void Response::removeHeader(const std::string &name) {
-	std::string normalized = normalizeForComparison(name);
-	// Remove header if it exists
-	for (std::map<std::string, std::string>::iterator it = _headers.begin(); it != _headers.end(); ++it) {
-		if (it->first == normalized) {
-			_headers.erase(it);
-			if (normalized == "content-length" || normalized == "content-type") // Update internal state
-				updateContentLength();
+void Response::updateContentLength() {
+	std::map<std::string, std::string>::iterator it;
+	for (it = _headers.begin(); it != _headers.end(); ++it) {
+		std::string key = it->first;
+		for (std::string::iterator c = key.begin(); c != key.end(); ++c)
+			*c = std::tolower(*c);
+		if (key == "content-length") {
+			char buf[32];
+			sprintf(buf, "%lu", _body.length());
+			it->second = buf;
 			return;
 		}
 	}
-}
-
-bool Response::hasHeader(const std::string &name) const {
-	std::string normalized = normalizeForComparison(name); // For case-insensitive comparison
-	for (std::map<std::string, std::string>::const_iterator it = _headers.begin(); it != _headers.end(); ++it)
-		if (normalizeForComparison(it->first) == normalized)
-			return true;
-	return false;
-}
-
-std::string Response::getHeader(const std::string &name) const {
-	std::string normalized = normalizeForComparison(name);
-	for (std::map<std::string, std::string>::const_iterator it = _headers.begin(); it != _headers.end(); ++it)
-		if (normalizeForComparison(it->first) == normalized)
-			return it->second;
-	return std::string("");
-}
-
-void Response::setBody(const std::string &content) {
-	_body = content;
-	updateContentLength();
-	if (!hasHeader("Content-Type"))
-		addHeader("Content-Type", "text/plain");
-}
-
-void Response::appendBody(const std::string &content) {
-	/*
-		appendBody(content):
-		1. Append content to existing body
-		2. Update Content-Length header
-		3. IF body was empty:
-		   Set Content-Type if not set
-		Note: Maintains response validity
-	*/
-	(void)content;
-}
-
-const std::string &Response::getBody() const { return _body; }
-
-std::string Response::formatHeader(const std::string &name, const std::string &value) {
-	return (name + " " + value + "\r\n");
+	_headers["Content-Length"] = StringUtils::numToString(_body.length());
 }
 
 std::string Response::toString() const {
-	/*
-		toString():
-		1. Build status line
-		2. Append formatted headers
-		3. Add empty line
-		4. Append body
-		5. Return complete response string
-	*/
 	std::string response;
 	response.reserve(1024);
-	// Status line (Only HTTP 1.1 compliant for now)
-	response += "HTTP/1.1 " + StringUtils::numToString(_statusCode) + " " + getStatusText() + "\r\n";
-	// Headers
-	for (std::map<std::string, std::string>::const_iterator it = _headers.begin(); it != _headers.end(); ++it)
-		response += it->first + ": " + it->second + "\r\n";
-	// Empty line before body
+
+	response += "HTTP/1.1 ";
+	response += StringUtils::numToString(_statusCode);
+	response += " ";
+	response += getStatusText();
+	response += "\r\n";
+
+	std::map<std::string, std::string>::const_iterator it;
+	for (it = _headers.begin(); it != _headers.end(); ++it) {
+		response += it->first;
+		response += ": ";
+		response += it->second;
+		response += "\r\n";
+	}
+
 	response += "\r\n";
 	response += _body;
+
 	return response;
-}
-
-std::vector<unsigned char> Response::toBinary() const {
-	/*
-		toBinary():
-		1. Convert string response to binary
-		2. Handle special characters
-		3. Return binary vector
-	*/
-	return std::vector<unsigned char>();
-}
-
-void Response::setCookie(const std::string &name, const std::string &value,
-						 const std::map<std::string, std::string> &options) {
-	/*
-		setCookie(name, value, options):
-		1. Validate cookie name/value
-		2. Build cookie string with options:
-		   - Expires
-		   - Max-Age
-		   - Domain
-		   - Path
-		   - Secure
-		   - HttpOnly
-		3. Add Set-Cookie header
-	*/
-	(void)name;
-	(void)value;
-	(void)options;
-}
-
-void Response::redirect(const std::string &location, int code) {
-	/*
-		redirect(location, code):
-		1. Set status code (301, 302, 307, 308)
-		2. Add Location header
-		3. Set minimal body
-	*/
-	(void)location;
-	(void)code;
-}
-
-void Response::sendFile(const std::string &filePath) {
-	/*
-		sendFile(filePath):
-		1. Determine content type
-		2. Read file content
-		3. Set appropriate headers
-		4. Set body with file content
-	*/
-	(void)filePath;
 }
 
 /*
  * @see https://developer.mozilla.org/en-US/docs/Web/HTTP/Status
  */
 std::string Response::getStatusText() const {
-	/*
-		getStatusText():
-		1. Look up status code
-		2. Return corresponding text
-		3. Handle unknown codes
-	*/
 	switch (_statusCode) {
 		// 1xx informational response
 		case 100: return "Continue";
@@ -281,43 +153,8 @@ std::string Response::getStatusText() const {
 		case 508: return "Loop Detected";
 		case 510: return "Not Extended";
 		case 511: return "Network Authentication Required";
-		default: return "Unknown Error";
+		default: return "Unknown";
 	}
 }
 
-void Response::setDefaultHeaders() {
-	_headers["Server"] = "webserv";
-	_headers["Date"] = TimeUtils::getCurrentTime();
-	_headers["Content-Type"] = "text/plain";
-	_headers["Connection"] = "keep-alive";
-}
-
-void Response::updateContentLength() {
-	/*
-		updateContentLength():
-		1. Calculate body length
-		2. Update Content-Length header
-		3. Handle special cases:
-		   - Chunked encoding
-		   - Empty body
-	*/
-	// Remove any existing Content-Length
-	for (std::map<std::string, std::string>::iterator it = _headers.begin();
-		 it != _headers.end(); ++it) {
-		if (normalizeForComparison(it->first) == "content-length") {
-			_headers.erase(it);
-			break;
-		}
-	}
-	// Add new Content-Length if body not empty
-	unsigned long length = _body.length();
-	if (length > 0)
-		addHeader("Content-Length", StringUtils::numToString(length));
-}
-
-std::string Response::normalizeForComparison(const std::string &name) {
-	std::string normalized = name;
-	for (std::string::iterator it = normalized.begin(); it != normalized.end(); ++it)
-		*it = std::tolower(*it);
-	return normalized;
-}
+Response::~Response() {}

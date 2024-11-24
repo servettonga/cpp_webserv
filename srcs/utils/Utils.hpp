@@ -75,7 +75,7 @@ namespace Utils {
 			static std::string urlEncode(const std::string& str);
 			static std::string urlDecode(const std::string& str);
 			static std::map<std::string, std::string> parseQueryString(const std::string& query);
-			static std::string getMimeType(const std::string& extension);
+			static std::string getMimeType(const std::string &ext);
 	};
 
 	// System utilities

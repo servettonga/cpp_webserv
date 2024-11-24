@@ -6,22 +6,25 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 13:04:01 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/14 09:29:49 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/11/24 12:43:14 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "Server.hpp"
 #include "../utils/Utils.hpp"
-#include <cstring>
-#include <iostream>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <cerrno>
-#include <fcntl.h>
-#include <csignal>
-#include <sstream>
-#include <fstream>
+#include <cstring>		// For strerror
+#include <iostream>		// For std::cout
+#include <sys/socket.h>	// For socket functions
+#include <netinet/in.h>	// For sockaddr_in
+#include <cerrno>		// For errno
+#include <fcntl.h>		// For fcntl
+#include <sstream>		// For stringstream
+#include <fstream>		// For file I/O
+#include <dirent.h>     // For opendir, readdir, closedir, DIR
+#include <sys/types.h>  // For basic system data types
+#include <sys/stat.h>   // For stat() function
+#include <unistd.h>     // For basic system calls
+#include <time.h>       // For time functions like strftime
 
 using namespace Utils;
 
@@ -97,27 +100,22 @@ bool Server::initializeSocket() {
 	_serverSocket = socket(AF_INET, SOCK_STREAM, 0);
 	if (_serverSocket < 0)
 		return (std::cerr << "Error: socket creation failed: " << strerror(errno) << std::endl, false);
-
 	// Set socket options (reuse address)
 	int opt = 1; // Enable address reuse
 	if (setsockopt(_serverSocket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0)
 		return (std::cerr << "Error: setsockopt failed: " << strerror(errno) << std::endl, false);
-
 	// Set non-blocking mode
 	setNonBlocking(_serverSocket);
 	sockaddr_in addr = {};
 	addr.sin_family = AF_INET; // IPv4
 	addr.sin_port = htons(_port); // Port
 	addr.sin_addr.s_addr = htonl(INADDR_ANY); // Any address
-
 	// Bind to specified port and address
 	if (bind(_serverSocket, (sockaddr *)&addr, sizeof(addr)) < 0)
 		return (std::cerr << "Error: bind failed: " << strerror(errno) << std::endl, false);
-
 	// Listen for connections
 	if (listen(_serverSocket, 10) < 0)
 		return (std::cerr << "Error: listen failed: " << strerror(errno) << std::endl, false);
-
 	// Clear all entries in the sets
 	FD_ZERO(&_masterSet);
 	FD_ZERO(&_readSet);
@@ -151,56 +149,31 @@ void Server::handleNewConnection() {
 	setNonBlocking(clientFd); // Set new socket to non-blocking
 	FD_SET(clientFd, &_masterSet); // Add to the master set
 	_maxFd = std::max(_maxFd, clientFd); // Update maxFd if needed
-	ClientState client = { "", "", false, false }; // Initialize client state
+	ClientState client = {"", "", false}; // Initialize client state
 	_clients[clientFd] = client;
 }
 
 void Server::handleClientData(int clientFd) {
-	/*
-		handleClientData(clientFd):
-		1. Create read buffer
-		2. Receive data from client
-		3. IF error or connection closed:
-		   Close connection
-		4. Append data to client's request buffer
-		5. IF request complete:
-		   Process request
-	*/
-	char buffer[1024] = {}; // Read buffer (1KB) - can be increased if needed
-	ssize_t bytesRead = recv(clientFd, buffer, sizeof(buffer), 0); // Receive data from client
+	char buffer[1024] = {};
+	ssize_t bytesRead = recv(clientFd, buffer, sizeof(buffer), 0);
 	if (bytesRead <= 0) {
-		if (bytesRead < 0 && errno != EWOULDBLOCK && errno != EAGAIN) // Ignore would block and try again
-			throw std::runtime_error("Failed to receive data: " + std::string(strerror(errno)));
+		if (bytesRead < 0 && errno != EWOULDBLOCK && errno != EAGAIN)
+			throw std::runtime_error("Failed to receive: " + std::string(strerror(errno)));
 		closeConnection(clientFd);
-		return ;
+		return;
 	}
 	ClientState &client = _clients[clientFd];
-	client.requestBuffer += std::string(buffer, bytesRead);
-	// If request complete, process it
+	client.requestBuffer.append(buffer, bytesRead);
 	if (!client.requestComplete && isRequestComplete(client.requestBuffer)) {
-		processRequest(clientFd, _clients[clientFd]);
+		processRequest(clientFd, client);
 		client.requestComplete = true;
 	}
 }
 
 void Server::handleClientWrite(int clientFd) {
-	/*
-		handleClientWrite(clientFd):
-		1. Get client state
-		2. Send available response data
-		3. IF error:
-		   Handle error (except would block)
-		4. Remove sent data from buffer
-		5. IF buffer empty:
-		   IF HTTP/1.0 or Connection: close:
-			 Close connection
-		   ELSE:
-			 Reset for next request
-	*/
 	ClientState &client = _clients[clientFd];
 	if (client.responseBuffer.empty()) // Nothing to send
 		return ;
-
 	size_t sendSize = std::min(client.responseBuffer.size(), static_cast<size_t>(4096)); // Send up to 4096 bytes
 	ssize_t bytesSent = send(clientFd, client.responseBuffer.c_str(), sendSize, 0);
 	if (bytesSent < 0) { // Error
@@ -235,131 +208,40 @@ void Server::closeConnection(int clientFd) {
 // ********** Request/Response methods **********
 
 void Server::processRequest(int clientFd, Server::ClientState &client) {
-	/*
-		processRequest(clientFd, client):
-		1. Parse request line (method, path, version)
-		2. Parse headers
-		3. IF POST:
-		   Extract body using Content-Length
-		4. Create response object
-		5. SWITCH on method:
-		   CASE GET:
-			 Handle GET request
-		   CASE POST:
-			 Handle POST request
-		   DEFAULT:
-			 Send 405 Method Not Allowed
-		6. Set response in client buffer
-		7. Clear request buffer
-	*/
-	if (client.requestBuffer.size() > 8192) { // Request too large (8KB limit)
-		sendErrorResponse(clientFd, 413, "Payload Too Large");
-		return ;
-	}
-	size_t pos = client.requestBuffer.find("\r\n\r\n");
-	if (pos == std::string::npos) { // Invalid request
-		sendErrorResponse(clientFd, 400, "Bad Request");
-		return ;
-	}
+	// Size limit check
+	if (client.requestBuffer.size() > 8192)
+		return (sendErrorResponse(clientFd, 413, "Payload Too Large"));
 	// Parse request
-	std::istringstream iss(client.requestBuffer); // Create input stream from request buffer
-	std::string requestLine;
-	std::getline(iss, requestLine); // Get the first line of the request
-
-	// Parse request line
-	std::string method, path, version;
-	std::istringstream issLine(requestLine);
-	issLine >> method >> path >> version; // Create input stream from request line
-
-	// Create response object
-	Response response(200); // Default to 200 OK
-
-	// Set connection header based on version and request headers
-	if (version == "HTTP/1.1") {
-		if (client.requestBuffer.find("Connection: close") != std::string::npos) {
-			response.addHeader("Connection", "close");
-		} else {
-			response.addHeader("Connection", "keep-alive");
-		}
-	} else if (version == "HTTP/1.0") {
-		if (client.requestBuffer.find("Connection: keep-alive") != std::string::npos) {
-			response.addHeader("Connection", "keep-alive");
-		} else {
-			response.addHeader("Connection", "close");
-		}
+	HTTPRequest request;
+	if (!request.parse(client.requestBuffer))
+		return (sendErrorResponse(clientFd, 400, "Bad Request"));
+	// Create response
+	Response response(200);
+	// Handle connection persistence
+	if (request.getVersion() == "HTTP/1.1") {
+		std::string connection = request.getHeader("Connection");
+		response.addHeader("Connection",
+						   (connection == "close") ? "close" : "keep-alive");
 	} else {
-		sendErrorResponse(clientFd, 505, "HTTP Version Not Supported");
-		return;
+		std::string connection = request.getHeader("Connection");
+		response.addHeader("Connection",
+						   (connection == "keep-alive") ? "keep-alive" : "close");
 	}
-	response.addHeader("Server", _host);
-
-	// Parse headers
-	std::map<std::string, std::string> headers;
-	std::string headerLine;
-	while (std::getline(iss, headerLine) && headerLine != "\r") { // Read headers until empty line
-		pos = headerLine.find(": ");
-		if (pos != std::string::npos) {
-			std::string key = headerLine.substr(0, pos);
-			std::string value = headerLine.substr(pos + 2); // Skip ": "
-			if (!value.empty() && value[value.size() - 1] == '\r') // Remove trailing \r
-				value = value.substr(0, value.size() - 1);
-			headers[key] = value;
-		}
-	}
-
-	// Route request based on method
-	if (method == "GET")
-		handleGET(path, headers, response);
-	else if (method == "POST") {
-		// Extract body using Content-Length
-		size_t contentLength = 0;
-		if (headers.find("Content-Length") != headers.end()) // Content-Length header present
-			std::stringstream(headers["Content-Length"]) >> contentLength;
-		if (client.requestBuffer.size() >= static_cast<std::streamoff>(iss.tellg()) + contentLength) { // Body present
-			std::string body = client.requestBuffer.substr(iss.tellg(), contentLength);
-			handlePOST(path, headers, body, response);
-		} else {
-			sendErrorResponse(clientFd, 411, "Length Required"); // Content-Length missing or invalid
-			return ;
-		}
+	// Route request
+	if (request.getMethod() == "GET") {
+		handleGET(request.getPath(), response);
+	} else if (request.getMethod() == "POST") {
+		handlePOST(request.getPath(), request.getHeaders(),
+				   request.getBody(), response);
 	} else {
-		response.setStatusCode(405); // Method Not Allowed
-		response.addHeader("Content-Type", "text/plain");
+		response.setStatusCode(405);
+		response.addHeader("Allow", "GET, POST");
 		response.setBody("Method Not Allowed");
 	}
-
-	response.updateContentLength();
-	client.responseBuffer = response.toString(); // Set response in client buffer
-}
-
-void Server::sendResponse(int clientFd, Server::ClientState &client) {
-	/*
-		sendResponse(clientFd, client):
-		1. IF response buffer empty:
-		   Return
-		2. Send available data
-		3. IF error:
-		   Handle error (except would block)
-		4. Remove sent data from buffer
-		5. IF buffer empty:
-		   IF connection should close:
-			 Close connection
-	*/
-	(void)clientFd;
-	(void)client;
+	client.responseBuffer = response.toString();
 }
 
 void Server::sendErrorResponse(int clientFd, int statusCode, const std::string &message) {
-	/*
-		sendErrorResponse(clientFd, statusCode, message):
-		1. Create response object
-		2. Set status code from parameter
-		3. Add Content-Type: text/html header
-		4. Create a simple HTML error page with message
-		5. Set response body
-		6. Convert response to string
-		7. Set client's response buffer
-	*/
 	Response response(statusCode);
 	response.addHeader("Content-Type", "text/html");
 	response.setBody("<html><body><h1>" + message + "</h1></body></html>");
@@ -367,130 +249,153 @@ void Server::sendErrorResponse(int clientFd, int statusCode, const std::string &
 	_clients[clientFd].responseBuffer = responseStr;
 }
 
-
 // ********** HTTP method handlers **********
 
-void Server::handleGET(const std::string &path, const std::map<std::string, std::string> &headers, Response &response) {
-	/*
-		handleGET(path, headers, response):
-		1. IF path is root ("/"):
-		   - Set 200 OK status
-		   - Set Content-Type: text/html
-		   - Set welcome page as body
-		   RETURN
-
-		2. Try to resolve the file path:
-		   IF the path contains ".." or illegal characters:
-			 Set 403 Forbidden
-			 RETURN
-
-		3. IF the file exists:
-		   - Get file extension
-		   - Set appropriate Content-Type header
-		   - Set 200 OK status
-		   - Read file content
-		   - Set file content as body
-		   RETURN
-
-		4. ELSE:
-		   Set 404 Not Found
-		   RETURN
-	*/
-	(void)headers; // Unused for now
-
-	// Validate the path to prevent directory traversal
-	if (path.find("..") != std::string::npos || path.find('~') != std::string::npos)
-		return (response.setStatusCode(403), response.setBody("Forbidden"), void());
-
-	// If the path is root, return welcome page
-	if (path == "/") {
-		response.setStatusCode(200);
-		response.addHeader("Content-Type", "text/html");
-		response.addHeader("Content-Length", StringUtils::numToString(response.getBody().size()));
-		response.setBody("<html><body><h1>Welcome to the server!</h1></body></html>");
-		return ;
+void Server::handleGET(const std::string &path, Response &response) {
+	// Security check
+	if (path.find("..") != std::string::npos || path.find('~') != std::string::npos) {
+		response.setStatusCode(403);
+		response.setBody("Forbidden");
+		return;
 	}
-
-	// Try to open the file
-	std::string fullPath = "www" + path;
-	std::ifstream file(fullPath.c_str(), std::ios::binary); // Open file in binary mode
-	if (file.is_open()) {
-		// Get file extension
-		std::string extension = fullPath.substr(fullPath.find_last_of('.') + 1);
-		// Set Content-Type based on file extension (later move to HTTPUtils)
-		if (extension == "html")
-			response.addHeader("Content-Type", "text/html");
-		else if (extension == "css")
-			response.addHeader("Content-Type", "text/css");
-		else if (extension == "js")
-			response.addHeader("Content-Type", "application/javascript");
-		else if (extension == "jpg" || extension == "jpeg")
-			response.addHeader("Content-Type", "image/jpeg");
-		else if (extension == "png")
-			response.addHeader("Content-Type", "image/png");
-		else if (extension == "gif")
-			response.addHeader("Content-Type", "image/gif");
-		else if (extension == "ico")
-			response.addHeader("Content-Type", "image/x-icon");
-		else
-			response.addHeader("Content-Type", "application/octet-stream");
-
-		// Read file content
-		std::stringstream buffer;
-		buffer << file.rdbuf();
-		response.setStatusCode(200);
-		response.setBody(buffer.str());
-		file.close();
-	} else {
+	// Handle /files route
+	if (path.substr(0, 6) == "/files") {
+		std::string filesPath = "www/files" + (path.length() > 6 ? path.substr(6) : "");
+		struct stat statbuf;
+		if (stat(filesPath.c_str(), &statbuf) == 0) {
+			if (S_ISDIR(statbuf.st_mode)) {
+				// Directory listing
+				std::string listing = createDirectoryListing(filesPath, path);
+				if (listing.empty()) {
+					if (errno == EACCES)
+						response.setStatusCode(403);
+					else if (errno == ENOENT)
+						response.setStatusCode(404);
+					else
+						response.setStatusCode(500);
+					response.setBody("Directory access error");
+				} else {
+					response.setStatusCode(200);
+					response.addHeader("Content-Type", "text/html");
+					response.setBody(listing);
+				}
+				return;
+			}
+		}
+	}
+	// Regular file handling
+	std::string fullPath;
+	if (path == "/" || path == "/index.html")
+		fullPath = "www/index.html";
+	else
+		fullPath = "www" + path;
+	// File serving
+	std::ifstream file(fullPath.c_str(), std::ios::binary);
+	if (!file.is_open()) {
 		response.setStatusCode(404);
 		response.setBody("Not Found");
+		return;
 	}
+	// Read file content
+	std::stringstream buffer;
+	buffer << file.rdbuf();
+	file.close();
+	// Set response
+	response.setStatusCode(200);
+	std::string ext = fullPath.substr(fullPath.find_last_of('.') + 1);
+	std::string mimeType = HTTPUtils::getMimeType(ext);
+	// Set Content-Type for viewable files
+	response.addHeader("Content-Type", mimeType);
+	// Add Content-Disposition for non-viewable files
+	if (mimeType == "application/octet-stream" ||
+		mimeType == "application/zip" ||
+		mimeType == "application/x-executable") {
+		response.addHeader("Content-Disposition", "attachment; filename=\"" +
+												  path.substr(path.find_last_of('/') + 1) + "\"");
+	}
+	response.setBody(buffer.str());
 }
 
-void Server::handlePOST(const std::string &path, const std::map<std::string, std::string> &headers, const std::string &body,
-				   Response &response) {
-	/*
-	handlePOST(path, headers, body, response):
-	1. IF Content-Type header missing:
-	   Set 400 Bad Request
-	   RETURN
+void Server::handlePOST(const std::string &path,
+						const std::map<std::string, std::string> &headers,
+						const std::string &body,
+						Response &response) {
+	// Validate headers
+	std::map<std::string, std::string>::const_iterator contentType = headers.find("Content-Type");
+	std::map<std::string, std::string>::const_iterator contentLength = headers.find("Content-Length");
 
-	2. IF Content-Length header invalid:
-	   Set 411 Length Required
-	   RETURN
-
-	3. IF body size exceeds max allowed:
-	   Set 413 Payload Too Large
-	   RETURN
-
-	4. Process POST based on the path:
-	   IF the path not handled:
-		 Set 404 Not Found
-	   ELSE:
-		 Handle request data
-		 Set appropriate status code
-		 Set response headers
-		 Set response body
-	*/
-	(void)path; // Unused for now
-	// Validate Content-Type header
-	if (headers.find("Content-Type") == headers.end())
-		return (response.setStatusCode(400));
-
-	// Echo back the received data for now
+	if (contentType == headers.end()) {
+		response.setStatusCode(400);
+		response.setBody("Bad Request: Missing Content-Type");
+		return;
+	}
+	if (contentLength == headers.end()) {
+		response.setStatusCode(411);
+		response.setBody("Length Required");
+		return;
+	}
+	// Check body size
+	if (body.length() > 8192) { // 8KB limit
+		response.setStatusCode(413);
+		response.setBody("Payload Too Large");
+		return;
+	}
+	// Basic POST handling - echo back
 	response.setStatusCode(200);
 	response.addHeader("Content-Type", "text/plain");
-	response.setBody(body);
-}
-
-// ********** Helper methods **********
-
-// Update the highest file descriptor
-void Server::updateMaxFd() {
-
+	response.setBody("Received POST to " + path + "\nBody: " + body);
 }
 
 // Check if full request received
 bool Server::isRequestComplete(const std::string &request) {
 	return (request.find("\r\n\r\n") != std::string::npos);
+}
+
+std::string Server::createDirectoryListing(const std::string &path, const std::string &urlPath) {
+	DIR* dir = opendir(path.c_str());
+	if (!dir)
+		return "";
+	std::stringstream html;
+	html << "<html><head><title>Directory: " << urlPath << "</title></head><body>\n"
+		 << "<h1>Directory: " << urlPath << "</h1>\n"
+		 << "<table>\n"
+		 << "<tr><th>Name</th><th>Size</th><th>Last Modified</th></tr>\n";
+	// Add the parent directory link only if not in root
+	if (urlPath != "/files/") {
+		html << "<tr><td><a href=\"../\">..</a></td><td>-</td><td>-</td></tr>\n";
+	}
+	struct dirent* entry;
+	while ((entry = readdir(dir)) != NULL) {
+		std::string name = entry->d_name;
+		if (name == "." || name == "..")
+			continue;
+		struct stat statbuf;
+		std::string fullPath = path + "/" + name;
+		if (stat(fullPath.c_str(), &statbuf) == 0) {
+			// Remove trailing slash from urlPath if exists
+			std::string cleanUrlPath = urlPath;
+			if (cleanUrlPath[cleanUrlPath.length() - 1] == '/')
+				cleanUrlPath = cleanUrlPath.substr(0, cleanUrlPath.length() - 1);
+			html << "<tr><td><a href=\"";
+			if (urlPath == "/files/")
+				html << "/files/" << name;
+			else
+				html << cleanUrlPath << "/" << name;
+			// Add trailing slash only for directories
+			if (S_ISDIR(statbuf.st_mode))
+				html << "/";
+			html << "\">" << name << "</a></td>";
+			if (S_ISDIR(statbuf.st_mode))
+				html << "<td>-</td>";
+			else
+				html << "<td>" << statbuf.st_size << " bytes</td>";
+			char timebuf[32];
+			strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S",
+					 localtime(&statbuf.st_mtime));
+			html << "<td>" << timebuf << "</td></tr>\n";
+		}
+	}
+	closedir(dir);
+	html << "</table></body></html>";
+	return html.str();
 }
