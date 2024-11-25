@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 20:05:44 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/04 22:11:55 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/11/24 20:04:38 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -21,14 +21,6 @@
 #include <string>
 
 class RequestHandler {
-	public:
-		// Constructor and Destructor
-		explicit RequestHandler(const ServerConfig &config);
-		~RequestHandler();
-
-		// Main handler method
-		Response handleRequest(const HTTPRequest &request);
-
 	private:
 		// Configuration
 		const ServerConfig &_config;
@@ -48,6 +40,13 @@ class RequestHandler {
 		std::string getContentType(const std::string &path);
 		bool validatePath(const std::string &path);
 		const LocationConfig *getLocation(const std::string &uri);
+		std::string createDirectoryListing(const std::string &path, const std::string &urlPath);
+
+	public:
+		explicit RequestHandler(const ServerConfig &config);
+		~RequestHandler();
+
+		Response handleRequest(const HTTPRequest &request);
 };
 
 #endif

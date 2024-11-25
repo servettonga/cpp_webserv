@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 13:04:01 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/24 12:44:19 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/11/25 19:48:51 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -29,6 +29,7 @@ class Server {
 		int _port;
 		int _serverSocket;
 		bool _isRunning;
+		ServerConfig _config;
 
 		// Socket sets
 		fd_set _masterSet;
@@ -58,18 +59,10 @@ class Server {
 		void processRequest(int clientFd, ClientState& client);
 		bool isRequestComplete(const std::string& request);
 		void sendErrorResponse(int clientFd, int statusCode, const std::string& message);
-		std::string createDirectoryListing(const std::string &path, const std::string &urlPath);
-
-		// HTTP method handlers
-		void handleGET(const std::string& path, Response& response);
-		void handlePOST(const std::string& path,
-						const std::map<std::string, std::string>& headers,
-						const std::string& body,
-						Response& response);
 
 	public:
 		// Constructor and Destructor
-		explicit Server(int port, const std::string &host = "0.0.0.0");
+		explicit Server(const ServerConfig &config);
 		~Server();
 
 		void start();

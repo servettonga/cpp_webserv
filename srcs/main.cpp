@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/26 12:25:04 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/14 09:30:35 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/11/25 18:30:39 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -28,7 +28,30 @@ int main(const int argc, char *argv[]) {
 			return 1;
 		}
 		(void)configFile; // TODO: use config file
-		Server server(8080, "test_server");
+		ServerConfig config;
+		// Configure server
+		config.host = "0.0.0.0";
+		config.port = 8080;
+		config.root = "www";
+
+		// Add root location
+		LocationConfig rootLoc;
+		rootLoc.path = "/";
+		rootLoc.root = "www";
+		rootLoc.index = "index.html";
+		rootLoc.autoindex = false;
+		rootLoc.methods.push_back("GET");
+		config.locations.push_back(rootLoc);
+
+		// Add /files location
+		LocationConfig filesLoc;
+		filesLoc.path = "/files";
+		filesLoc.root = "www";
+		filesLoc.autoindex = true;
+		filesLoc.methods.push_back("GET");
+		config.locations.push_back(filesLoc);
+
+		Server server(config);
 		server.start();
 	} catch (const std::exception& e) {
 		std::cerr << "Server error: " << e.what() << std::endl;

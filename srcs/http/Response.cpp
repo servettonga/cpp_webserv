@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 20:07:58 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/24 12:49:21 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/11/24 19:33:36 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -14,6 +14,7 @@
 #include "../utils/Utils.hpp"
 #include <algorithm>
 #include <cstdio>
+#include <sstream>
 
 using namespace Utils;
 
@@ -55,27 +56,30 @@ void Response::updateContentLength() {
 }
 
 std::string Response::toString() const {
-	std::string response;
-	response.reserve(1024);
+	std::stringstream response;
 
-	response += "HTTP/1.1 ";
-	response += StringUtils::numToString(_statusCode);
-	response += " ";
-	response += getStatusText();
-	response += "\r\n";
+	// Status line
+	response << "HTTP/1.1 " << _statusCode << " " << getStatusText() << "\r\n";
 
-	std::map<std::string, std::string>::const_iterator it;
-	for (it = _headers.begin(); it != _headers.end(); ++it) {
-		response += it->first;
-		response += ": ";
-		response += it->second;
-		response += "\r\n";
+	// Add Content-Length if not present
+	bool hasContentLength = false;
+	for (std::map<std::string, std::string>::const_iterator it = _headers.begin();
+		 it != _headers.end(); ++it) {
+		response << it->first << ": " << it->second << "\r\n";
+		if (it->first == "Content-Length")
+			hasContentLength = true;
 	}
 
-	response += "\r\n";
-	response += _body;
+	// Add Content-Length if missing
+	if (!hasContentLength)
+		response << "Content-Length: " << _body.length() << "\r\n";
 
-	return response;
+	// Empty line
+	response << "\r\n";
+	// Body
+	response << _body;
+
+	return response.str();
 }
 
 /*
