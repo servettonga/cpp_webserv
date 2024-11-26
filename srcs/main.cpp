@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/26 12:25:04 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/25 18:30:39 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/11/26 17:37:21 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -34,7 +34,7 @@ int main(const int argc, char *argv[]) {
 		config.port = 8080;
 		config.root = "www";
 
-		// Add root location
+		// root location
 		LocationConfig rootLoc;
 		rootLoc.path = "/";
 		rootLoc.root = "www";
@@ -43,7 +43,7 @@ int main(const int argc, char *argv[]) {
 		rootLoc.methods.push_back("GET");
 		config.locations.push_back(rootLoc);
 
-		// Add /files location
+		// /files location
 		LocationConfig filesLoc;
 		filesLoc.path = "/files";
 		filesLoc.root = "www";
@@ -53,7 +53,7 @@ int main(const int argc, char *argv[]) {
 
 		Server server(config);
 		server.start();
-	} catch (const std::exception& e) {
+	} catch (const std::exception &e) {
 		std::cerr << "Server error: " << e.what() << std::endl;
 		return 1;
 	}
