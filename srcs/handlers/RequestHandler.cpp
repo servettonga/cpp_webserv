@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 20:05:44 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/26 17:24:13 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/11/26 22:30:11 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -44,20 +44,17 @@ Response RequestHandler::handleRequest(const HTTPRequest &request) {
 
 Response RequestHandler::handleGET(const HTTPRequest& request) {
 	// Security check
-	if (!validatePath(request.getPath())) {
+	if (!validatePath(request.getPath()))
 		return generateErrorResponse(403, "Forbidden");
-	}
 
 	// Get location config
 	const LocationConfig *location = getLocation(request.getPath());
-	if (!location) {
+	if (!location)
 		return generateErrorResponse(404, "Not Found");
-	}
 
 	// Check method allowed
-	if (!isMethodAllowed("GET", *location)) {
+	if (!isMethodAllowed("GET", *location))
 		return generateErrorResponse(405, "Method Not Allowed");
-	}
 
 	// Construct file path
 	std::string fullPath = constructFilePath(request.getPath(), *location);
@@ -65,11 +62,10 @@ Response RequestHandler::handleGET(const HTTPRequest& request) {
 	// Handle directory or file
 	struct stat st;
 	if (stat(fullPath.c_str(), &st) == 0) {
-		if (S_ISDIR(st.st_mode)) {
+		if (S_ISDIR(st.st_mode))
 			return handleDirectory(fullPath, *location);
-		} else {
+		else
 			return serveStaticFile(fullPath, request.getPath());
-		}
 	}
 
 	return generateErrorResponse(404, "Not Found");
@@ -108,41 +104,86 @@ Response RequestHandler::handleDELETE(const HTTPRequest &request) {
 	return Response();
 }
 
+/*
+ * @brief Handle directory listing for the given path and location
+ */
 Response RequestHandler::handleDirectory(const std::string &path, const LocationConfig &loc) {
-	// Try index file first
+	// Try the index file first
 	if (!loc.index.empty()) {
 		std::string indexPath = path + "/" + loc.index;
 		struct stat st;
-		if (stat(indexPath.c_str(), &st) == 0 && !S_ISDIR(st.st_mode)) {
+		if (stat(indexPath.c_str(), &st) == 0 && !S_ISDIR(st.st_mode))
 			return serveStaticFile(indexPath, "/index.html");
-		}
 	}
 
 	// Generate listing if allowed
 	if (loc.autoindex) {
 		Response response(200);
 		response.addHeader("Content-Type", "text/html");
-
-		// Fix path calculation
-		std::string relativePath;
-		if (path == loc.root + "/files") {  // If in /files root
-			relativePath = "";
-		} else if (path.find(loc.root) == 0) {  // In subdirectory
-			relativePath = path.substr(loc.root.length());
+		// Start with the base location path
+		std::string urlPath = loc.path;
+		// If we're in a subdirectory, extract only the part after loc.path
+		if (path.length() > loc.root.length()) {
+			std::string subPath = path.substr(loc.root.length());
+			if (subPath.substr(0, loc.path.length()) == loc.path)
+				subPath = subPath.substr(loc.path.length());
+			if (!subPath.empty()) {
+				if (subPath[0] != '/')
+					subPath = "/" + subPath;
+				urlPath += subPath;
+			}
 		}
-
-		// Use location path directly
-		std::string urlPath = loc.path;  // Should be just "/files"
-		if (!relativePath.empty()) {
-			if (relativePath[0] != '/')
-				relativePath = "/" + relativePath;
-			urlPath += relativePath;  // Add subdirectory path
-		}
-
 		response.setBody(createDirectoryListing(path, urlPath));
 		return response;
 	}
+
 	return generateErrorResponse(403, "Forbidden");
+}
+
+/*
+ * @brief Create an HTML directory listing for the given path and URL path
+ */
+std::string RequestHandler::createDirectoryListing(const std::string &path, const std::string &urlPath) {
+	DIR* dir = opendir(path.c_str());
+	if (!dir)
+		return "";
+
+	std::stringstream html;
+	html << "<html><head><title>Directory: " << urlPath << "</title></head><body>\n"
+		 << "<h1>Directory: " << urlPath << "</h1>\n"
+		 << "<table>\n"
+		 << "<tr><th>Name</th><th>Size</th><th>Last Modified</th></tr>\n";
+	if (urlPath != "/")
+		html << "<tr><td><a href=\"../\">..</a></td><td>-</td><td>-</td></tr>\n";
+	struct dirent* entry;
+	while ((entry = readdir(dir)) != NULL) {
+		std::string name = entry->d_name;
+		if (name == "." || name == "..")
+			continue;
+		struct stat statbuf;
+		std::string fullPath = path + "/" + name;
+		if (stat(fullPath.c_str(), &statbuf) == 0) {
+			std::string linkPath = urlPath;
+			if (!urlPath.empty() && urlPath[urlPath.length() - 1] != '/')
+				linkPath += '/';
+			linkPath += name;
+			html << "<tr><td><a href=\"" << linkPath;
+			if (S_ISDIR(statbuf.st_mode) && name != "..")
+				html << "/";
+			html << "\">" << name << "</a></td>";
+			if (S_ISDIR(statbuf.st_mode))
+				html << "<td>-</td>";
+			else
+				html << "<td>" << statbuf.st_size << " bytes</td>";
+			char timebuf[32];
+			strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S",
+					 localtime(&statbuf.st_mtime));
+			html << "<td>" << timebuf << "</td></tr>\n";
+		}
+	}
+	closedir(dir);
+	html << "</table></body></html>";
+	return html.str();
 }
 
 bool RequestHandler::isMethodAllowed(const std::string& method, const LocationConfig& loc) {
@@ -229,55 +270,6 @@ const LocationConfig* RequestHandler::getLocation(const std::string& uri) {
 	return bestMatch;
 }
 
-std::string RequestHandler::createDirectoryListing(const std::string &path, const std::string &urlPath) {
-	DIR* dir = opendir(path.c_str());
-	if (!dir)
-		return "";
-
-	std::stringstream html;
-	html << "<html><head><title>Directory: " << urlPath << "</title></head><body>\n"
-		 << "<h1>Directory: " << urlPath << "</h1>\n"
-		 << "<table>\n"
-		 << "<tr><th>Name</th><th>Size</th><th>Last Modified</th></tr>\n";
-
-	// Add parent directory link except for root directory
-	if (urlPath != "/" && urlPath != "/files")
-		html << "<tr><td><a href=\"../\">..</a></td><td>-</td><td>-</td></tr>\n";
-
-	struct dirent* entry;
-	while ((entry = readdir(dir)) != NULL) {
-		std::string name = entry->d_name;
-		if (name == "." || name == "..")
-			continue;
-
-		struct stat statbuf;
-		std::string fullPath = path + "/" + name;
-		if (stat(fullPath.c_str(), &statbuf) == 0) {
-			// Include full URL path in links
-			html << "<tr><td><a href=\""
-				 << (name == ".." ? "../" : urlPath + "/" + name);
-
-			if (S_ISDIR(statbuf.st_mode) && name != "..")
-				html << "/";
-
-			html << "\">" << name << "</a></td>";
-
-			if (S_ISDIR(statbuf.st_mode))
-				html << "<td>-</td>";
-			else
-				html << "<td>" << statbuf.st_size << " bytes</td>";
-
-			char timebuf[32];
-			strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S",
-					 localtime(&statbuf.st_mtime));
-			html << "<td>" << timebuf << "</td></tr>\n";
-		}
-	}
-	closedir(dir);
-	html << "</table></body></html>";
-	return html.str();
-}
-
 Response RequestHandler::serveStaticFile(const std::string &fullPath, const std::string &urlPath) {
 	std::ifstream file(fullPath.c_str(), std::ios::binary);
 	if (!file.is_open())
@@ -288,12 +280,9 @@ Response RequestHandler::serveStaticFile(const std::string &fullPath, const std:
 	buffer << file.rdbuf();
 	std::string content = buffer.str();
 	file.close();
-
-	// Create response
-	Response response(200);
+	Response response(200);	// Create response with 200 OK
 	std::string mimeType = getContentType(urlPath);
 	response.addHeader("Content-Type", mimeType);
-
 	// Add Content-Disposition for downloads
 	if (mimeType == "application/octet-stream" ||
 		mimeType == "application/zip" ||
@@ -302,28 +291,24 @@ Response RequestHandler::serveStaticFile(const std::string &fullPath, const std:
 						   "attachment; filename=\"" +
 						   urlPath.substr(urlPath.find_last_of('/') + 1) + "\"");
 	}
-
 	response.setBody(content);
 	return response;
 }
 
-Response RequestHandler::generateErrorResponse(int statusCode, const std::string& message) {
+Response RequestHandler::generateErrorResponse(int statusCode, const std::string &message) {
 	Response response(statusCode);
 	response.addHeader("Content-Type", "text/html");
-
 	std::string body = "<html><body><h1>" +
 					   message + "</h1></body></html>";
 	response.setBody(body);
 	return response;
 }
 
-std::string RequestHandler::constructFilePath(const std::string& uri, const LocationConfig& loc) {
+std::string RequestHandler::constructFilePath(const std::string &uri, const LocationConfig &loc) {
 	std::string path = loc.root;
-	// Ensure root has trailing slash
-	if (!path.empty() && path[path.length()-1] != '/')
+	if (!path.empty() && path[path.length()-1] != '/')	// Ensure root has trailing slash
 		path += '/';
-	// Add the URI path without a leading slash
-	if (!uri.empty() && uri[0] == '/')
+	if (!uri.empty() && uri[0] == '/')	// Add the URI path without a leading slash
 		path += uri.substr(1);
 	else
 		path += uri;
