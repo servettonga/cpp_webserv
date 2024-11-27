@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   Response.hpp                                       :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
+/*   By: jdepka <jdepka@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 20:07:58 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/04 10:32:55 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/11/26 19:35:34 by jdepka           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -16,6 +16,10 @@
 #include <string>
 #include <map>
 #include <vector>
+#include <ctime>
+#include <sstream>
+#include <fstream>
+#include <stdexcept>
 
 class Response {
 	public:
