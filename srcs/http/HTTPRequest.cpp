@@ -6,32 +6,72 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 23:07:40 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/23 22:38:31 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/11/27 12:10:38 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "HTTPRequest.hpp"
 #include <cstdlib>
+#include <iostream>
+#include <sstream>
 
 /**
  * @brief Parses raw HTTP request string
  * @param raw Complete HTTP request as string
  * @return true if parsing successful, false otherwise
  */
-bool HTTPRequest::parse(const std::string &raw) {
-	std::string request = raw;
-	size_t pos = request.find("\r\n");
-	if (pos == std::string::npos)
-		return false;
+bool HTTPRequest::parse(const std::string &rawRequest) {
+	// Debug output
+	std::cout << "Parse called with request size: " << rawRequest.size() << std::endl;
 
-	if (!parseRequestLine(request.substr(0, pos)))
+	// First parse request line
+	size_t firstLineEnd = rawRequest.find("\r\n");
+	if (firstLineEnd == std::string::npos) {
+		std::cout << "No request line found" << std::endl;
 		return false;
+	}
 
-	request = request.substr(pos + 2);
-	if (!parseHeaders(request))
+	// Parse first line
+	std::string firstLine = rawRequest.substr(0, firstLineEnd);
+	if (!parseRequestLine(firstLine)) {
+		std::cout << "Failed to parse request line" << std::endl;
 		return false;
+	}
 
-	parseBody(request);
+	size_t headerEnd = rawRequest.find("\r\n\r\n");
+	if (headerEnd == std::string::npos) {
+		std::cout << "No header end found" << std::endl;
+		return false;
+	}
+
+	// Parse headers
+	std::string headerSection = rawRequest.substr(firstLineEnd + 2,
+												  headerEnd - (firstLineEnd + 2));
+	if (!parseHeaders(headerSection)) {
+		std::cout << "Failed to parse headers" << std::endl;
+		return false;
+	}
+
+	// Get Content-Length
+	size_t contentLength = 0;
+	if (_headers.find("Content-Length") != _headers.end()) {
+		contentLength = std::atol(_headers["Content-Length"].c_str());
+		std::cout << "Content-Length: " << contentLength << std::endl;
+	}
+
+	// Extract body
+	if (contentLength > 0) {
+		size_t bodyStart = headerEnd + 4;
+		if (rawRequest.length() >= bodyStart + contentLength) {
+			_body = rawRequest.substr(bodyStart, contentLength);
+			std::cout << "Body size: " << _body.length() << std::endl;
+			return true;
+		} else {
+			std::cout << "Incomplete body" << std::endl;
+			return false;
+		}
+	}
+
 	return true;
 }
 
@@ -41,15 +81,25 @@ bool HTTPRequest::parse(const std::string &raw) {
  * @return true if parsing successful, false otherwise
  */
 bool HTTPRequest::parseRequestLine(const std::string &line) {
+	// Debug
+	std::cout << "Parsing request line: " << line << std::endl;
+
 	size_t first = line.find(' ');
 	size_t last = line.rfind(' ');
 
-	if (first == std::string::npos || last == std::string::npos || first == last)
+	if (first == std::string::npos || last == std::string::npos || first == last) {
+		std::cout << "Invalid request line format" << std::endl;
 		return false;
+	}
 
 	_method = line.substr(0, first);
 	_path = line.substr(first + 1, last - first - 1);
 	_version = line.substr(last + 1);
+
+	// Debug
+	std::cout << "Method: '" << _method << "'" << std::endl;
+	std::cout << "Path: '" << _path << "'" << std::endl;
+	std::cout << "Version: '" << _version << "'" << std::endl;
 
 	return true;
 }
@@ -59,30 +109,30 @@ bool HTTPRequest::parseRequestLine(const std::string &line) {
  * @param request Request string starting after request line
  * @return true if parsing successful, false otherwise
  */
-bool HTTPRequest::parseHeaders(std::string &request) {
-	while (true) {
-		size_t pos = request.find("\r\n");
-		if (pos == std::string::npos)
-			return false;
+bool HTTPRequest::parseHeaders(const std::string &headerSection) {
+	std::string line;
+	std::istringstream headerStream(headerSection);
 
-		std::string line = request.substr(0, pos);
-		if (line.empty()) {
-			request = request.substr(pos + 2);
-			return true;
-		}
+	while (std::getline(headerStream, line)) {
+		// Skip empty lines
+		if (line.empty() || line == "\r")
+			continue;
 
-		size_t colon = line.find(':');
-		if (colon == std::string::npos)
-			return false;
+		// Remove trailing \r if present
+		if (!line.empty() && line[line.length()-1] == '\r')
+			line = line.substr(0, line.length()-1);
 
-		std::string key = trimWhitespace(line.substr(0, colon));
-		std::string value = trimWhitespace(line.substr(colon + 1));
+		size_t colonPos = line.find(": ");
+		if (colonPos == std::string::npos)
+			continue;
 
-		if (!key.empty())
-			_headers[key] = value;
+		std::string key = line.substr(0, colonPos);
+		std::string value = line.substr(colonPos + 2);
+		_headers[key] = value;
 
-		request = request.substr(pos + 2);
+		std::cout << "Parsed header: " << key << " = " << value << std::endl;
 	}
+	return true;
 }
 
 /**

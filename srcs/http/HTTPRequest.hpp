@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 23:07:40 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/23 22:32:22 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/11/27 12:06:40 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -26,12 +26,12 @@ class HTTPRequest {
 		std::string _body;				 // Request body
 
 		bool parseRequestLine(const std::string &line);
-		bool parseHeaders(std::string &request);
+		bool parseHeaders(const std::string &headerSection);
 		void parseBody(std::string &request);
 		static std::string trimWhitespace(const std::string &str);
 
 	public:
-		bool parse(const std::string &raw);
+		bool parse(const std::string &rawRequest);
 
 		const std::string &getMethod() const;
 		const std::string &getPath() const;

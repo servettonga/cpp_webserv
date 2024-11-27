@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 13:04:01 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/25 19:52:56 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/11/27 12:10:07 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -136,19 +136,58 @@ void Server::handleNewConnection() {
 }
 
 void Server::handleClientData(int clientFd) {
-	char buffer[1024] = {};
+	char buffer[8192] = {};
+	ClientState &client = _clients[clientFd];
+
+	// Calculate expected total length if we haven't already
+	size_t expectedLength = 0;
+	size_t headerEnd = client.requestBuffer.find("\r\n\r\n");
+
+	if (headerEnd != std::string::npos) {
+		size_t clPos = client.requestBuffer.find("Content-Length: ");
+		if (clPos != std::string::npos && clPos < headerEnd) {
+			size_t clEnd = client.requestBuffer.find("\r\n", clPos);
+			if (clEnd != std::string::npos) {
+				std::string lenStr = client.requestBuffer.substr(
+						clPos + 16, clEnd - (clPos + 16));
+				expectedLength = std::atol(lenStr.c_str());
+			}
+		}
+	}
+
+	// Read data
 	ssize_t bytesRead = recv(clientFd, buffer, sizeof(buffer), 0);
 	if (bytesRead <= 0) {
-		if (bytesRead < 0 && errno != EWOULDBLOCK && errno != EAGAIN)
-			throw std::runtime_error("Failed to receive: " + std::string(strerror(errno)));
+		if (bytesRead < 0 && errno != EWOULDBLOCK && errno != EAGAIN) {
+			std::cerr << "Error: Failed to receive: " << strerror(errno) << std::endl;
+		}
 		closeConnection(clientFd);
 		return;
 	}
-	ClientState &client = _clients[clientFd];
+
+	// Debug output
+	std::cout << "Received " << bytesRead << " bytes" << std::endl;
+
+	// Append to buffer
 	client.requestBuffer.append(buffer, bytesRead);
-	if (!client.requestComplete && isRequestComplete(client.requestBuffer)) {
-		processRequest(clientFd, client);
-		client.requestComplete = true;
+
+	// Debug total received
+	std::cout << "Total buffer size: " << client.requestBuffer.size() << std::endl;
+
+	// Check if we have complete headers and complete body
+	if (headerEnd != std::string::npos) {
+		size_t totalExpectedLength = headerEnd + 4 + expectedLength; // headers + \r\n\r\n + body
+		std::cout << "Expected total length: " << totalExpectedLength << std::endl;
+		std::cout << "Current buffer length: " << client.requestBuffer.length() << std::endl;
+
+		// Process request only when we have all the data
+		if (client.requestBuffer.length() >= totalExpectedLength) {
+			std::cout << "Request complete, processing..." << std::endl;
+			processRequest(clientFd, client);
+			client.requestComplete = true;
+		} else {
+			std::cout << "Waiting for more data..." << std::endl;
+		}
 	}
 }
 

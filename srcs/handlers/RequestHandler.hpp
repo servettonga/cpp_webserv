@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 20:05:44 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/25 19:55:25 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/11/26 23:19:44 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -16,6 +16,7 @@
 #include "../http/HTTPRequest.hpp"
 #include "../http/Response.hpp"
 #include "../server/ServerConfig.hpp"
+#include "FormDataPart.hpp"
 #include "CGIHandler.hpp"
 #include <map>
 #include <string>
@@ -35,12 +36,14 @@ class RequestHandler {
 		Response serveStaticFile(const std::string& fullPath, const std::string &urlPath);
 		Response handleDirectory(const std::string& path, const LocationConfig &loc);
 		std::string createDirectoryListing(const std::string& path, const std::string &urlPath);
+		std::vector<FormDataPart> parseMultipartFormData(const HTTPRequest& request);
 
 		// Helper methods
 		std::string getContentType(const std::string &path);
 		bool validatePath(const std::string &path);
 		Response generateErrorResponse(int statusCode, const std::string &message);
 		std::string constructFilePath(const std::string& uri, const LocationConfig &loc);
+		static std::string sanitizeFilename(const std::string& filename);
 
 		// Member variables
 		const ServerConfig &_config;

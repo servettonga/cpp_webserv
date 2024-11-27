@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 20:05:44 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/26 22:30:11 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/11/27 12:07:29 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -18,28 +18,40 @@
 #include <fstream>		// For ifstream, rdbuf
 #include <iostream>
 #include <cstring>
+#include <csignal>
 
 RequestHandler::RequestHandler(const ServerConfig &config) : _config(config) {}
 
 RequestHandler::~RequestHandler() {}
 
 Response RequestHandler::handleRequest(const HTTPRequest &request) {
-	Response response(200);
-	// Handle connection headers
-	if (request.getVersion() == "HTTP/1.1") {
-		std::string connection = request.getHeader("Connection");
-		response.addHeader("Connection",
-						   (connection == "close") ? "close" : "keep-alive");
+	// Get location config first
+	const LocationConfig *location = getLocation(request.getPath());
+	if (!location) {
+		std::cout << "No location found for path: " << request.getPath() << std::endl;
+		return generateErrorResponse(404, "Not Found");
 	}
+
+	std::cout << "Found location: " << location->path << std::endl;
+	std::cout << "Request method: " << request.getMethod() << std::endl;
+
+	// Check method allowed
+	if (!isMethodAllowed(request.getMethod(), *location)) {
+		std::cout << "Method not allowed: " << request.getMethod() << std::endl;
+		Response error(405);
+		error.addHeader("Content-Type", "text/html");
+		error.addHeader("Allow", "GET, POST");
+		error.setBody("<html><body><h1>Method Not Allowed</h1></body></html>");
+		return error;
+	}
+
 	// Route request
 	if (request.getMethod() == "GET")
 		return handleGET(request);
 	else if (request.getMethod() == "POST")
 		return handlePOST(request);
-	response.setStatusCode(405);
-	response.addHeader("Allow", "GET, POST");
-	response.setBody("Method Not Allowed");
-	return response;
+
+	return generateErrorResponse(501, "Not Implemented");
 }
 
 Response RequestHandler::handleGET(const HTTPRequest& request) {
@@ -72,21 +84,140 @@ Response RequestHandler::handleGET(const HTTPRequest& request) {
 }
 
 Response RequestHandler::handlePOST(const HTTPRequest &request) {
-	/*
-		handlePOST(request):
-		1. Validate request path
-		2. Check content length limits
-		3. IF CGI request:
-		   - Route to CGI handler
-		4. ELSE IF file upload:
-		   - Validate file type
-		   - Store file
-		   - Return success response
-		5. ELSE:
-		   Return 400 Bad Request
-	*/
-	(void)request;
-	return Response();
+	const LocationConfig *location = getLocation(request.getPath());
+	if (!location)
+		return generateErrorResponse(404, "Not Found");
+
+	if (!isMethodAllowed("POST", *location))
+		return generateErrorResponse(405, "Method Not Allowed");
+
+	// Get boundary from Content-Type
+	std::string contentType = request.getHeader("Content-Type");
+	size_t boundaryPos = contentType.find("boundary=");
+	if (boundaryPos == std::string::npos)
+		return generateErrorResponse(400, "Bad Request - No boundary");
+
+	std::string boundary = "--" + contentType.substr(boundaryPos + 9);
+	std::string body = request.getBody();
+
+	// Parse multipart data
+	size_t startPos = body.find(boundary);
+	if (startPos == std::string::npos)
+		return generateErrorResponse(400, "Bad Request - Invalid multipart data");
+
+	// Find Content-Disposition header
+	size_t headerStart = body.find("Content-Disposition:", startPos);
+	if (headerStart == std::string::npos)
+		return generateErrorResponse(400, "Bad Request - No Content-Disposition");
+
+	// Extract filename
+	size_t filenamePos = body.find("filename=\"", headerStart);
+	if (filenamePos == std::string::npos)
+		return generateErrorResponse(400, "Bad Request - No filename");
+
+	size_t filenameEnd = body.find("\"", filenamePos + 10);
+	std::string filename = body.substr(filenamePos + 10, filenameEnd - (filenamePos + 10));
+
+	// Find content start
+	size_t contentStart = body.find("\r\n\r\n", filenameEnd) + 4;
+	size_t contentEnd = body.find(boundary, contentStart) - 2; // -2 for \r\n
+	std::string content = body.substr(contentStart, contentEnd - contentStart);
+
+	// Save file
+	std::string filepath = location->root + "/" + filename;
+	std::ofstream outFile(filepath.c_str(), std::ios::binary);
+	if (!outFile)
+		return generateErrorResponse(500, "Internal Server Error - Cannot create file");
+
+	outFile.write(content.c_str(), content.length());
+	outFile.close();
+
+	// Return success
+	Response response(201);
+	response.addHeader("Content-Type", "text/plain");
+	response.setBody("File uploaded successfully");
+	return response;
+}
+
+std::vector<FormDataPart> RequestHandler::parseMultipartFormData(const HTTPRequest& request) {
+	std::vector<FormDataPart> parts;
+	std::string contentType = request.getHeader("Content-Type");
+
+	// Debug output
+	std::cout << "Parsing multipart data" << std::endl;
+	std::cout << "Content-Type full: " << contentType << std::endl;
+
+	size_t boundaryPos = contentType.find("boundary=");
+	if (boundaryPos == std::string::npos) {
+		std::cout << "No boundary found" << std::endl;
+		return parts;
+	}
+
+	std::string boundary = "--" + contentType.substr(boundaryPos + 9);
+
+	// Debug boundary
+	std::cout << "Boundary: " << boundary << std::endl;
+
+	std::string body = request.getBody();
+	size_t pos = 0;
+
+	while ((pos = body.find(boundary, pos)) != std::string::npos) {
+		pos += boundary.length();
+
+		// Skip leading \r\n
+		if (pos < body.length() && body[pos] == '\r') pos++;
+		if (pos < body.length() && body[pos] == '\n') pos++;
+
+		// Find next boundary
+		size_t nextBoundary = body.find(boundary, pos);
+		if (nextBoundary == std::string::npos) break;
+
+		// Extract part content
+		std::string part = body.substr(pos, nextBoundary - pos);
+
+		// Debug part
+		std::cout << "Found part, length: " << part.length() << std::endl;
+
+		FormDataPart formPart;
+		size_t headerEnd = part.find("\r\n\r\n");
+		if (headerEnd != std::string::npos) {
+			// Parse headers
+			std::string headers = part.substr(0, headerEnd);
+			std::cout << "Headers: " << headers << std::endl;
+
+			size_t start = 0, end;
+			while ((end = headers.find("\r\n", start)) != std::string::npos) {
+				std::string header = headers.substr(start, end - start);
+				size_t colon = header.find(": ");
+				if (colon != std::string::npos) {
+					std::string name = header.substr(0, colon);
+					std::string value = header.substr(colon + 2);
+					formPart.headers[name] = value;
+					std::cout << "Header: " << name << " = " << value << std::endl;
+				}
+				start = end + 2;
+			}
+
+			// Get content
+			formPart.content = part.substr(headerEnd + 4);
+			std::cout << "Content size: " << formPart.content.size() << std::endl;
+
+			parts.push_back(formPart);
+		}
+	}
+
+	std::cout << "Found " << parts.size() << " parts" << std::endl;
+	return parts;
+}
+
+std::string RequestHandler::sanitizeFilename(const std::string &filename) {
+	std::string safe;
+	for (size_t i = 0; i < filename.length(); i++) {
+		char c = filename[i];
+		if (isalnum(c) || c == '-' || c == '_' || c == '.')
+			safe += c;
+	}
+	return safe;
 }
 
 Response RequestHandler::handleDELETE(const HTTPRequest &request) {
@@ -187,15 +318,36 @@ std::string RequestHandler::createDirectoryListing(const std::string &path, cons
 }
 
 bool RequestHandler::isMethodAllowed(const std::string& method, const LocationConfig& loc) {
-	// Always allow GET by default
-	if (loc.methods.empty() && method == "GET")
+	// Debug output
+	std::cout << "Checking if method '" << method << "' is allowed in location " << loc.path << std::endl;
+	std::cout << "Location has " << loc.methods.size() << " allowed methods:" << std::endl;
+	for (std::vector<std::string>::const_iterator it = loc.methods.begin();
+		 it != loc.methods.end(); ++it) {
+		std::cout << "- " << *it << std::endl;
+	}
+
+	// Validate method is not empty
+	if (method.empty()) {
+		std::cout << "Empty method provided" << std::endl;
+		return false;
+	}
+
+	// Check if we're in uploads location and method is POST
+	if (loc.path == "/files/uploads" && method == "POST") {
+		std::cout << "POST allowed in uploads location" << std::endl;
 		return true;
+	}
+
 	// Check against allowed methods
 	for (std::vector<std::string>::const_iterator it = loc.methods.begin();
 		 it != loc.methods.end(); ++it) {
-		if (*it == method)
+		if (*it == method) {
+			std::cout << "Method " << method << " found in allowed methods" << std::endl;
 			return true;
+		}
 	}
+
+	std::cout << "Method " << method << " not allowed" << std::endl;
 	return false;
 }
 
@@ -249,8 +401,18 @@ const LocationConfig* RequestHandler::getLocation(const std::string& uri) {
 	const LocationConfig* bestMatch = NULL;
 	size_t bestLength = 0;
 
+	std::cout << "Looking for location matching URI: " << uri << std::endl;
+
 	for (std::vector<LocationConfig>::const_iterator it = _config.locations.begin();
 		 it != _config.locations.end(); ++it) {
+		std::cout << "Checking location: " << it->path << std::endl;
+		std::cout << "Methods: ";
+		for (std::vector<std::string>::const_iterator mit = it->methods.begin();
+			 mit != it->methods.end(); ++mit) {
+			std::cout << *mit << " ";
+		}
+		std::cout << std::endl;
+
 		// Special handling for root location
 		if (it->path == "/") {
 			if (!bestMatch) {
@@ -267,6 +429,11 @@ const LocationConfig* RequestHandler::getLocation(const std::string& uri) {
 			}
 		}
 	}
+
+	if (bestMatch) {
+		std::cout << "Found matching location: " << bestMatch->path << std::endl;
+	}
+
 	return bestMatch;
 }
 
