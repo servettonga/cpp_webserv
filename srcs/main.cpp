@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/26 12:25:04 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/27 10:18:44 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/11/27 22:27:50 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -54,7 +54,7 @@ int main(const int argc, char *argv[]) {
 		// /files/uploads location config update
 		LocationConfig uploadLoc;
 		uploadLoc.path = "/files/uploads";
-		uploadLoc.root = "www/files/uploads";
+		uploadLoc.root = "www";
 		uploadLoc.autoindex = true;
 		uploadLoc.client_max_body_size = 10 * 1024 * 1024; // 10MB limit
 		uploadLoc.methods.push_back("GET");

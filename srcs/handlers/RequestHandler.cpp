@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 20:05:44 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/27 12:07:29 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/11/27 22:59:49 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -55,31 +55,39 @@ Response RequestHandler::handleRequest(const HTTPRequest &request) {
 }
 
 Response RequestHandler::handleGET(const HTTPRequest& request) {
+	std::cout << "Handling GET request for path: " << request.getPath() << std::endl;
+
 	// Security check
-	if (!validatePath(request.getPath()))
+	if (!validatePath(request.getPath())) {
+		std::cout << "Path validation failed" << std::endl;
 		return generateErrorResponse(403, "Forbidden");
+	}
 
 	// Get location config
 	const LocationConfig *location = getLocation(request.getPath());
-	if (!location)
+	if (!location) {
+		std::cout << "No location config found" << std::endl;
 		return generateErrorResponse(404, "Not Found");
+	}
 
-	// Check method allowed
-	if (!isMethodAllowed("GET", *location))
-		return generateErrorResponse(405, "Method Not Allowed");
+	std::cout << "Found location: " << location->path << std::endl;
+	std::cout << "Location root: " << location->root << std::endl;
 
 	// Construct file path
 	std::string fullPath = constructFilePath(request.getPath(), *location);
+	std::cout << "Full path: " << fullPath << std::endl;
 
 	// Handle directory or file
 	struct stat st;
 	if (stat(fullPath.c_str(), &st) == 0) {
+		std::cout << "Path exists, is directory: " << (S_ISDIR(st.st_mode) ? "yes" : "no") << std::endl;
 		if (S_ISDIR(st.st_mode))
 			return handleDirectory(fullPath, *location);
 		else
 			return serveStaticFile(fullPath, request.getPath());
 	}
 
+	std::cout << "Path does not exist: " << fullPath << std::endl;
 	return generateErrorResponse(404, "Not Found");
 }
 
@@ -124,7 +132,10 @@ Response RequestHandler::handlePOST(const HTTPRequest &request) {
 	std::string content = body.substr(contentStart, contentEnd - contentStart);
 
 	// Save file
-	std::string filepath = location->root + "/" + filename;
+	std::string uploadDir = location->root + request.getPath(); // This creates www/files/uploads
+	std::string filepath = uploadDir + "/" + filename;
+
+	std::cout << "Saving file to: " << filepath << std::endl;
 	std::ofstream outFile(filepath.c_str(), std::ios::binary);
 	if (!outFile)
 		return generateErrorResponse(500, "Internal Server Error - Cannot create file");
@@ -210,11 +221,12 @@ std::vector<FormDataPart> RequestHandler::parseMultipartFormData(const HTTPReque
 	return parts;
 }
 
-std::string RequestHandler::sanitizeFilename(const std::string &filename) {
+std::string RequestHandler::sanitizeFilename(const std::string& filename) {
 	std::string safe;
 	for (size_t i = 0; i < filename.length(); i++) {
 		char c = filename[i];
-		if (isalnum(c) || c == '-' || c == '_' || c == '.')
+		// Allow spaces, alphanumeric chars, and basic punctuation
+		if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == ' ')
 			safe += c;
 	}
 	return safe;
@@ -297,7 +309,23 @@ std::string RequestHandler::createDirectoryListing(const std::string &path, cons
 			std::string linkPath = urlPath;
 			if (!urlPath.empty() && urlPath[urlPath.length() - 1] != '/')
 				linkPath += '/';
-			linkPath += name;
+			// URL encode the filename
+			std::string encodedName;
+			for (size_t i = 0; i < name.length(); i++) {
+				char c = name[i];
+				if (isalnum(c) || c == '-' || c == '_' || c == '.')
+					encodedName += c;
+				else if (c == ' ')
+					encodedName += "%20";
+				else {
+					char hex[4];
+					snprintf(hex, sizeof(hex), "%%%02X", (unsigned char)c);
+					encodedName += hex;
+				}
+			}
+
+			linkPath += encodedName;
+
 			html << "<tr><td><a href=\"" << linkPath;
 			if (S_ISDIR(statbuf.st_mode) && name != "..")
 				html << "/";
@@ -471,13 +499,86 @@ Response RequestHandler::generateErrorResponse(int statusCode, const std::string
 	return response;
 }
 
-std::string RequestHandler::constructFilePath(const std::string &uri, const LocationConfig &loc) {
+std::string RequestHandler::constructFilePath(const std::string& uri, const LocationConfig& loc) {
+	std::cout << "\nConstructing file path:" << std::endl;
+	std::cout << "URI: " << uri << std::endl;
+	std::cout << "Location path: " << loc.path << std::endl;
+	std::cout << "Location root: " << loc.root << std::endl;
+
 	std::string path = loc.root;
-	if (!path.empty() && path[path.length()-1] != '/')	// Ensure root has trailing slash
-		path += '/';
-	if (!uri.empty() && uri[0] == '/')	// Add the URI path without a leading slash
-		path += uri.substr(1);
-	else
-		path += uri;
-	return path;
+
+	// If we have a location path and it's in the URI, remove it from URI
+	if (loc.path != "/" && uri.find(loc.path) == 0) {
+		// Calculate relative path by removing location path
+		std::string relativePath = uri.substr(loc.path.length());
+
+		// Build the final path
+		if (!relativePath.empty()) {
+			// Remove leading slash if present
+			if (relativePath[0] == '/')
+				relativePath = relativePath.substr(1);
+
+			// Add necessary path components
+			if (!path.empty() && path[path.length()-1] != '/')
+				path += '/';
+
+			std::string locationDir = loc.path;
+			// Remove leading slash
+			if (!locationDir.empty() && locationDir[0] == '/')
+				locationDir = locationDir.substr(1);
+
+			path += locationDir;
+
+			if (!relativePath.empty()) {
+				if (path[path.length()-1] != '/')
+					path += '/';
+				path += relativePath;
+			}
+		} else {
+			// Just add location directory to root
+			if (!path.empty() && path[path.length()-1] != '/')
+				path += '/';
+			std::string locationDir = loc.path;
+			if (!locationDir.empty() && locationDir[0] == '/')
+				locationDir = locationDir.substr(1);
+			path += locationDir;
+		}
+	} else {
+		// For root location or URIs not matching location path
+		if (uri != "/") {
+			std::string relativePath = uri;
+			if (relativePath[0] == '/')
+				relativePath = relativePath.substr(1);
+			if (!path.empty() && path[path.length()-1] != '/')
+				path += '/';
+			path += relativePath;
+		}
+	}
+
+	// URL decode the final path
+	std::string decodedPath = urlDecode(path);
+	std::cout << "Constructed path: " << decodedPath << std::endl;
+	return decodedPath;
+}
+
+std::string RequestHandler::urlDecode(const std::string& encoded) {
+	std::string decoded;
+	for (size_t i = 0; i < encoded.length(); ++i) {
+		if (encoded[i] == '%' && i + 2 < encoded.length()) {
+			std::string hex = encoded.substr(i + 1, 2);
+			char byte;
+			std::istringstream iss(hex);
+			int val;
+			if (iss >> std::hex >> val) {
+				byte = static_cast<char>(val);
+				decoded += byte;
+			}
+			i += 2;
+		} else if (encoded[i] == '+') {
+			decoded += ' ';
+		} else {
+			decoded += encoded[i];
+		}
+	}
+	return decoded;
 }

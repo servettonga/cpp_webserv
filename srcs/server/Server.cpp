@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 13:04:01 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/27 12:10:07 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/11/27 22:20:13 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -139,22 +139,6 @@ void Server::handleClientData(int clientFd) {
 	char buffer[8192] = {};
 	ClientState &client = _clients[clientFd];
 
-	// Calculate expected total length if we haven't already
-	size_t expectedLength = 0;
-	size_t headerEnd = client.requestBuffer.find("\r\n\r\n");
-
-	if (headerEnd != std::string::npos) {
-		size_t clPos = client.requestBuffer.find("Content-Length: ");
-		if (clPos != std::string::npos && clPos < headerEnd) {
-			size_t clEnd = client.requestBuffer.find("\r\n", clPos);
-			if (clEnd != std::string::npos) {
-				std::string lenStr = client.requestBuffer.substr(
-						clPos + 16, clEnd - (clPos + 16));
-				expectedLength = std::atol(lenStr.c_str());
-			}
-		}
-	}
-
 	// Read data
 	ssize_t bytesRead = recv(clientFd, buffer, sizeof(buffer), 0);
 	if (bytesRead <= 0) {
@@ -170,49 +154,60 @@ void Server::handleClientData(int clientFd) {
 
 	// Append to buffer
 	client.requestBuffer.append(buffer, bytesRead);
-
-	// Debug total received
 	std::cout << "Total buffer size: " << client.requestBuffer.size() << std::endl;
 
-	// Check if we have complete headers and complete body
+	// Process request when we have complete headers
+	size_t headerEnd = client.requestBuffer.find("\r\n\r\n");
 	if (headerEnd != std::string::npos) {
-		size_t totalExpectedLength = headerEnd + 4 + expectedLength; // headers + \r\n\r\n + body
-		std::cout << "Expected total length: " << totalExpectedLength << std::endl;
-		std::cout << "Current buffer length: " << client.requestBuffer.length() << std::endl;
-
-		// Process request only when we have all the data
-		if (client.requestBuffer.length() >= totalExpectedLength) {
-			std::cout << "Request complete, processing..." << std::endl;
+		// For GET requests, process immediately
+		if (client.requestBuffer.find("GET") == 0) {
+			std::cout << "Processing GET request..." << std::endl;
 			processRequest(clientFd, client);
 			client.requestComplete = true;
-		} else {
-			std::cout << "Waiting for more data..." << std::endl;
+			return;
+		}
+
+		// For POST requests, check Content-Length
+		size_t clPos = client.requestBuffer.find("Content-Length: ");
+		if (clPos != std::string::npos && clPos < headerEnd) {
+			size_t clEnd = client.requestBuffer.find("\r\n", clPos);
+			if (clEnd != std::string::npos) {
+				std::string lenStr = client.requestBuffer.substr(clPos + 16, clEnd - (clPos + 16));
+				size_t expectedLength = std::atol(lenStr.c_str());
+				size_t totalExpectedLength = headerEnd + 4 + expectedLength;
+
+				if (client.requestBuffer.length() >= totalExpectedLength) {
+					std::cout << "Processing POST request..." << std::endl;
+					processRequest(clientFd, client);
+					client.requestComplete = true;
+				}
+			}
 		}
 	}
 }
 
 void Server::handleClientWrite(int clientFd) {
 	ClientState &client = _clients[clientFd];
-	if (client.responseBuffer.empty()) // Nothing to send
-		return ;
-	size_t sendSize = std::min(client.responseBuffer.size(), static_cast<size_t>(4096)); // Send up to 4096 bytes
-	ssize_t bytesSent = send(clientFd, client.responseBuffer.c_str(), sendSize, 0);
-	if (bytesSent < 0) { // Error
-		if (errno != EWOULDBLOCK && errno != EAGAIN) // Ignore would block
-			closeConnection(clientFd);
-		return ;
-	}
-	// Remove sent data from buffer
-	if (bytesSent > 0)
-		client.responseBuffer.erase(0, bytesSent); // Remove sent data from buffer
 
-	// If buffer empty and connection should close, close connection or reset for the next request (keep-alive)
-	if (client.responseBuffer.empty()) {
-		// HTTP/1.0 - close connection by default, unless Connection: keep-alive header present
-		if (client.requestBuffer.find("HTTP/1.0") != std::string::npos || client.requestBuffer.find("Connection: close") != std::string::npos)
+	if (client.responseBuffer.empty())
+		return;
+	ssize_t bytesSent = send(clientFd, client.responseBuffer.c_str(),
+							 client.responseBuffer.size(), 0);
+	if (bytesSent < 0) {
+		if (errno != EWOULDBLOCK && errno != EAGAIN)
 			closeConnection(clientFd);
-		else {
-			// Reset for the next request
+		return;
+	}
+	if (bytesSent > 0)
+		client.responseBuffer.erase(0, bytesSent);
+	// Close connection if response complete and not keep-alive
+	if (client.responseBuffer.empty()) {
+		if (!client.requestBuffer.empty() &&
+			(client.requestBuffer.find("HTTP/1.0") != std::string::npos ||
+			 client.requestBuffer.find("Connection: close") != std::string::npos)) {
+			closeConnection(clientFd);
+		} else {
+			// Reset for next request
 			client.requestBuffer.clear();
 			client.requestComplete = false;
 		}
@@ -235,7 +230,9 @@ void Server::processRequest(int clientFd, Server::ClientState &client) {
 
 	RequestHandler handler(_config);
 	Response response = handler.handleRequest(request);
+	// Set response buffer and mark for writing
 	client.responseBuffer = response.toString();
+	FD_SET(clientFd, &_writeSet);
 }
 
 void Server::sendErrorResponse(int clientFd, int statusCode, const std::string &message) {

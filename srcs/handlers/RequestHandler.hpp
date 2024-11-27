@@ -44,6 +44,7 @@ class RequestHandler {
 		Response generateErrorResponse(int statusCode, const std::string &message);
 		std::string constructFilePath(const std::string& uri, const LocationConfig &loc);
 		static std::string sanitizeFilename(const std::string& filename);
+		std::string urlDecode(const std::string& encoded);
 
 		// Member variables
 		const ServerConfig &_config;
