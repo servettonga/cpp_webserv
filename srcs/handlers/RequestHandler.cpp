@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 20:05:44 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/28 12:51:09 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/11/28 22:56:16 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -506,37 +506,25 @@ const LocationConfig* RequestHandler::getLocation(const std::string& uri) {
 	const LocationConfig* bestMatch = NULL;
 	size_t bestLength = 0;
 
-	std::cout << "Looking for location matching URI: " << uri << std::endl;
+	// Special handling for root path
+	if (uri == "/") {
+		for (std::vector<LocationConfig>::const_iterator it = _config.locations.begin();
+			 it != _config.locations.end(); ++it) {
+			if (it->path == "/") {
+				return &(*it);
+			}
+		}
+	}
 
+	// Find best matching location by path length
 	for (std::vector<LocationConfig>::const_iterator it = _config.locations.begin();
 		 it != _config.locations.end(); ++it) {
-		std::cout << "Checking location: " << it->path << std::endl;
-		std::cout << "Methods: ";
-		for (std::vector<std::string>::const_iterator mit = it->methods.begin();
-			 mit != it->methods.end(); ++mit) {
-			std::cout << *mit << " ";
-		}
-		std::cout << std::endl;
-
-		// Special handling for root location
-		if (it->path == "/") {
-			if (!bestMatch) {
-				bestMatch = &(*it);
-				bestLength = 1;
-			}
-			continue;
-		}
-		// For other locations, check if URI starts with location path
 		if (uri.find(it->path) == 0) {
 			if (it->path.length() > bestLength) {
 				bestMatch = &(*it);
 				bestLength = it->path.length();
 			}
 		}
-	}
-
-	if (bestMatch) {
-		std::cout << "Found matching location: " << bestMatch->path << std::endl;
 	}
 
 	return bestMatch;
@@ -576,66 +564,36 @@ Response RequestHandler::generateErrorResponse(int statusCode, const std::string
 	return response;
 }
 
-std::string RequestHandler::constructFilePath(const std::string& uri, const LocationConfig& loc) {
-	std::cout << "\nConstructing file path:" << std::endl;
-	std::cout << "URI: " << uri << std::endl;
-	std::cout << "Location path: " << loc.path << std::endl;
-	std::cout << "Location root: " << loc.root << std::endl;
-
+std::string RequestHandler::constructFilePath(const std::string &uri, const LocationConfig &loc) {
 	std::string path = loc.root;
+	std::string locationDir = loc.path;
 
-	// If we have a location path and it's in the URI, remove it from URI
-	if (loc.path != "/" && uri.find(loc.path) == 0) {
-		// Calculate relative path by removing location path
-		std::string relativePath = uri.substr(loc.path.length());
+	if (!locationDir.empty() && locationDir[0] == '/')	// Remove leading slash from the location path
+		locationDir = locationDir.substr(1);
 
-		// Build the final path
-		if (!relativePath.empty()) {
-			// Remove leading slash if present
-			if (relativePath[0] == '/')
-				relativePath = relativePath.substr(1);
+	if (loc.path == "/")	// Handle root location specially
+		return path + uri;
 
-			// Add necessary path components
-			if (!path.empty() && path[path.length()-1] != '/')
-				path += '/';
+	// For other locations
+	if (uri.find(loc.path) == 0) {
+		if (!path.empty() && path[path.length()-1] != '/')	// Add location directory to path
+			path += '/';
+		path += locationDir;
 
-			std::string locationDir = loc.path;
-			// Remove leading slash
-			if (!locationDir.empty() && locationDir[0] == '/')
-				locationDir = locationDir.substr(1);
-
-			path += locationDir;
-
-			if (!relativePath.empty()) {
-				if (path[path.length()-1] != '/')
-					path += '/';
-				path += relativePath;
-			}
-		} else {
-			// Just add location directory to root
-			if (!path.empty() && path[path.length()-1] != '/')
-				path += '/';
-			std::string locationDir = loc.path;
-			if (!locationDir.empty() && locationDir[0] == '/')
-				locationDir = locationDir.substr(1);
-			path += locationDir;
+		// Add the rest of the URI after the location path
+		std::string remaining = uri.substr(loc.path.length());
+		if (!remaining.empty() && remaining[0] == '/') {
+			remaining = remaining.substr(1);
 		}
-	} else {
-		// For root location or URIs not matching location path
-		if (uri != "/") {
-			std::string relativePath = uri;
-			if (relativePath[0] == '/')
-				relativePath = relativePath.substr(1);
-			if (!path.empty() && path[path.length()-1] != '/')
+		if (!remaining.empty()) {
+			if (path[path.length()-1] != '/') {
 				path += '/';
-			path += relativePath;
+			}
+			path += remaining;
 		}
 	}
 
-	// URL decode the final path
-	std::string decodedPath = urlDecode(path);
-	std::cout << "Constructed path: " << decodedPath << std::endl;
-	return decodedPath;
+	return urlDecode(path);
 }
 
 std::string RequestHandler::urlDecode(const std::string& encoded) {
