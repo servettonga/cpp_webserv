@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 13:04:01 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/27 22:20:13 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/11/28 12:53:27 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -159,9 +159,12 @@ void Server::handleClientData(int clientFd) {
 	// Process request when we have complete headers
 	size_t headerEnd = client.requestBuffer.find("\r\n\r\n");
 	if (headerEnd != std::string::npos) {
-		// For GET requests, process immediately
-		if (client.requestBuffer.find("GET") == 0) {
-			std::cout << "Processing GET request..." << std::endl;
+		// For GET and DELETE requests, process immediately
+		if (client.requestBuffer.find("GET") == 0 ||
+			client.requestBuffer.find("DELETE") == 0) {
+			std::cout << "Processing " <<
+					  (client.requestBuffer.find("GET") == 0 ? "GET" : "DELETE")
+					  << " request..." << std::endl;
 			processRequest(clientFd, client);
 			client.requestComplete = true;
 			return;

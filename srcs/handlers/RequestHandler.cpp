@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 20:05:44 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/27 22:59:49 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/11/28 12:51:09 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -50,6 +50,8 @@ Response RequestHandler::handleRequest(const HTTPRequest &request) {
 		return handleGET(request);
 	else if (request.getMethod() == "POST")
 		return handlePOST(request);
+	else if (request.getMethod() == "DELETE")
+		return handleDELETE(request);
 
 	return generateErrorResponse(501, "Not Implemented");
 }
@@ -233,18 +235,51 @@ std::string RequestHandler::sanitizeFilename(const std::string& filename) {
 }
 
 Response RequestHandler::handleDELETE(const HTTPRequest &request) {
-	/*
-		handleDELETE(request):
-		1. Validate request path
-		2. Check permissions
-		3. IF file exists:
-		   - Delete file
-		   - Return success response
-		4. ELSE:
-		   Return 404 Not Found
-	*/
-	(void)request;
-	return Response();
+	std::cout << "\nHandling DELETE request for: " << request.getPath() << std::endl;
+
+	// Get location config
+	const LocationConfig *location = getLocation(request.getPath());
+	if (!location) {
+		std::cout << "No location config found" << std::endl;
+		return generateErrorResponse(404, "Not Found");
+	}
+
+	// Check if DELETE is allowed
+	if (!isMethodAllowed("DELETE", *location)) {
+		std::cout << "DELETE not allowed" << std::endl;
+		return generateErrorResponse(405, "Method Not Allowed");
+	}
+
+	// Get file path
+	std::string fullPath = constructFilePath(request.getPath(), *location);
+	std::cout << "Attempting to delete file: " << fullPath << std::endl;
+
+	// Check if file exists and is not a directory
+	struct stat st;
+	if (stat(fullPath.c_str(), &st) != 0) {
+		std::cout << "File not found: " << fullPath << std::endl;
+		return generateErrorResponse(404, "Not Found");
+	}
+
+	if (S_ISDIR(st.st_mode)) {
+		std::cout << "Cannot delete directory: " << fullPath << std::endl;
+		return generateErrorResponse(403, "Forbidden - Cannot delete directories");
+	}
+
+	// Delete the file
+	if (unlink(fullPath.c_str()) != 0) {
+		std::cout << "Delete failed: " << strerror(errno) << std::endl;
+		return generateErrorResponse(500, "Internal Server Error - Delete failed");
+	}
+
+	std::cout << "File deleted successfully" << std::endl;
+
+	// Return success response
+	Response response(200);
+	response.addHeader("Content-Type", "text/plain");
+	response.addHeader("Connection", "close");  // Close connection after DELETE
+	response.setBody("File deleted successfully");
+	return response;
 }
 
 /*
@@ -292,23 +327,54 @@ std::string RequestHandler::createDirectoryListing(const std::string &path, cons
 		return "";
 
 	std::stringstream html;
-	html << "<html><head><title>Directory: " << urlPath << "</title></head><body>\n"
+	html << "<html><head>"
+		 << "<title>Directory: " << urlPath << "</title>"
+		 << "<style>"
+		 << "table { border-collapse: collapse; width: 100%; }"
+		 << "th, td { padding: 8px; text-align: left; }"
+		 << "th { background-color: #f2f2f2; }"
+		 << ".delete-btn { color: red; margin-left: 10px; cursor: pointer; }"
+		 << "</style>"
+		 << "<script>"
+		 << "function deleteFile(path) {"
+		 << "  if(confirm('Are you sure you want to delete this file?')) {"
+		 << "    fetch(path, {"
+		 << "      method: 'DELETE',"
+		 << "      headers: {'Connection': 'close'}"
+		 << "    })"
+		 << "    .then(response => {"
+		 << "      if(response.ok) {"
+		 << "        alert('File deleted successfully');"
+		 << "        window.location.reload();"
+		 << "      } else {"
+		 << "        response.text().then(text => alert('Delete failed: ' + text));"
+		 << "      }"
+		 << "    })"
+		 << "    .catch(err => alert('Delete failed: ' + err));"
+		 << "  }"
+		 << "}"
+		 << "</script>"
+		 << "</head><body>\n"
 		 << "<h1>Directory: " << urlPath << "</h1>\n"
 		 << "<table>\n"
-		 << "<tr><th>Name</th><th>Size</th><th>Last Modified</th></tr>\n";
+		 << "<tr><th>Name</th><th>Size</th><th>Last Modified</th><th>Actions</th></tr>\n";
+
 	if (urlPath != "/")
-		html << "<tr><td><a href=\"../\">..</a></td><td>-</td><td>-</td></tr>\n";
+		html << "<tr><td><a href=\"../\">..</a></td><td>-</td><td>-</td><td></td></tr>\n";
+
 	struct dirent* entry;
 	while ((entry = readdir(dir)) != NULL) {
 		std::string name = entry->d_name;
 		if (name == "." || name == "..")
 			continue;
+
 		struct stat statbuf;
 		std::string fullPath = path + "/" + name;
 		if (stat(fullPath.c_str(), &statbuf) == 0) {
 			std::string linkPath = urlPath;
 			if (!urlPath.empty() && urlPath[urlPath.length() - 1] != '/')
 				linkPath += '/';
+
 			// URL encode the filename
 			std::string encodedName;
 			for (size_t i = 0; i < name.length(); i++) {
@@ -327,17 +393,28 @@ std::string RequestHandler::createDirectoryListing(const std::string &path, cons
 			linkPath += encodedName;
 
 			html << "<tr><td><a href=\"" << linkPath;
-			if (S_ISDIR(statbuf.st_mode) && name != "..")
+			if (S_ISDIR(statbuf.st_mode))
 				html << "/";
 			html << "\">" << name << "</a></td>";
+
 			if (S_ISDIR(statbuf.st_mode))
 				html << "<td>-</td>";
 			else
 				html << "<td>" << statbuf.st_size << " bytes</td>";
+
 			char timebuf[32];
 			strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S",
 					 localtime(&statbuf.st_mtime));
-			html << "<td>" << timebuf << "</td></tr>\n";
+			html << "<td>" << timebuf << "</td>";
+
+			// Add delete button for files only
+			if (!S_ISDIR(statbuf.st_mode))
+				html << "<td><a class='delete-btn' onclick='deleteFile(\""
+					 << linkPath << "\")'>Delete</a></td>";
+			else
+				html << "<td></td>";
+
+			html << "</tr>\n";
 		}
 	}
 	closedir(dir);
