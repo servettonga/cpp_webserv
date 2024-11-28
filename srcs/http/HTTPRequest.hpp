@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   HTTPRequest.hpp                                    :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
+/*   By: jdepka <jdepka@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 23:07:40 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/04 10:31:42 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/11/27 21:46:17 by jdepka           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -16,6 +16,8 @@
 #include <string>
 #include <map>
 #include <vector>
+#include <stdexcept>
+#include <sstream>
 
 class HTTPRequest {
 	public:
@@ -56,7 +58,7 @@ class HTTPRequest {
 		// Helper methods
 		void parseRequestLine(const std::string &requestLine);
 		void parseFormDataPart(const std::string &partData, FormDataPart &part);
-		static bool isValidMethod(const std::string &method) ;
+		static bool isValidMethod(const std::string &method);
 		void extractQueryString();
 		void normalizePath();
 		static std::string decodeURIComponent(const std::string &encoded);
