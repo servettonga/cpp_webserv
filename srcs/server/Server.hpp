@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 13:04:01 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/28 22:53:59 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/11/29 23:05:58 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -20,18 +20,17 @@
 #include <string>
 #include <sys/select.h>
 
+#define BUFFER_SIZE (128 * 1024)	// 128KB
+
 class Server {
-	public:
-		explicit Server(const ServerConfig &config);
-		~Server();
-
-		void start();
-		void stop();
-
 	private:
 		struct ClientState {
 			std::string requestBuffer;
 			std::string responseBuffer;
+			std::vector<char> writeBuffer;
+			size_t writeBufferSize;
+
+			ClientState();
 		};
 
 		// Server configuration
@@ -40,6 +39,8 @@ class Server {
 		int _serverSocket;
 		bool _isRunning;
 		const ServerConfig _config;
+		static const int IDLE_TIMEOUT = 300;	// 5 minutes in seconds
+		time_t _lastActivity;         // Track last activity timestamp
 
 		// Socket management
 		fd_set _masterSet;
@@ -68,6 +69,14 @@ class Server {
 		void processCompleteRequests(int clientFd, ClientState &client);
 		void processRequest(int clientFd, ClientState &client);
 		void sendBadRequestResponse(int clientFd);
+
+	public:
+		explicit Server(const ServerConfig &config);
+		~Server();
+
+		void start();
+		void stop();
+
 };
 
 #endif

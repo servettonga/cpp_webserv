@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 13:04:01 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/28 22:53:51 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/11/30 17:09:46 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -19,6 +19,7 @@
 #include <iostream>
 #include <fcntl.h>
 #include <cstdlib>
+#include <cstring>
 
 Server::Server(const ServerConfig &config) :
 		_host(config.host),
@@ -42,7 +43,7 @@ void Server::start() {
 		throw std::runtime_error("Failed to initialize socket");
 
 	_isRunning = true;
-	std::cout << "Server " << _host <<" started on port: " << _port << std::endl;
+	std::cout << "Server " << _host << " started on port: " << _port << std::endl;
 	runEventLoop();
 }
 
@@ -60,7 +61,7 @@ bool Server::initializeSocket() {
 	addr.sin_port = htons(_port);
 	addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
-	if (bind(_serverSocket, (sockaddr *)&addr, sizeof(addr)) < 0 ||
+	if (bind(_serverSocket, (sockaddr *) &addr, sizeof(addr)) < 0 ||
 		listen(_serverSocket, SOMAXCONN) < 0)
 		return false;
 
@@ -78,16 +79,42 @@ void Server::setNonBlocking(int sockfd) {
 }
 
 void Server::runEventLoop() {
+	int maxFailedSelects = 5;
+	int failedSelects = 0;
+	_lastActivity = time(NULL);
+
 	while (_isRunning) {
 		fd_set readSet = _masterSet;
 		fd_set writeSet = _writeSet;
 		timeval timeout = {0, 500000};
 
 		int activity = select(_maxFd + 1, &readSet, &writeSet, NULL, &timeout);
-		if (activity < 0 && errno != EINTR)
-			break;
-		if (activity > 0)
+
+		if (activity < 0) {
+			if (errno == EINTR)
+				continue;
+
+			failedSelects++;
+			std::cerr << "Select error: " << strerror(errno) << std::endl;
+
+			if (failedSelects >= maxFailedSelects) {
+				_isRunning = false;
+				break;
+			}
+			continue;
+		}
+		failedSelects = 0;
+		if (activity > 0) {
+			_lastActivity = time(NULL);  // Update activity timestamp
 			handleEvents(readSet, writeSet);
+		}
+		// Check idle timeout
+		if (_clients.empty() &&
+			difftime(time(NULL), _lastActivity) > IDLE_TIMEOUT) {
+			std::cout << "Server idle timeout reached" << std::endl;
+			_isRunning = false;
+			break;
+		}
 	}
 }
 
@@ -108,14 +135,14 @@ void Server::handleReadEvent(int fd) {
 }
 
 void Server::handleClientData(int clientFd) {
-	char buffer[8192] = {};
+	char buffer[BUFFER_SIZE] = {};
 	ClientState &client = _clients[clientFd];
 
 	ssize_t bytesRead = recv(clientFd, buffer, sizeof(buffer), 0);
 	if (bytesRead <= 0)
 		return (closeConnection(clientFd));
-	client.requestBuffer.append(buffer, bytesRead);	// Append new data to existing buffer
-	processCompleteRequests(clientFd, client);	// Process complete requests
+	client.requestBuffer.append(buffer, bytesRead);    // Append new data to existing buffer
+	processCompleteRequests(clientFd, client);    // Process complete requests
 }
 
 void Server::processCompleteRequests(int clientFd, ClientState &client) {
@@ -152,7 +179,7 @@ void Server::handleNewConnection() {
 	sockaddr_in addr = {};
 	socklen_t addrLen = sizeof(addr);
 
-	int clientFd = accept(_serverSocket, (sockaddr *)&addr, &addrLen);
+	int clientFd = accept(_serverSocket, (sockaddr *) &addr, &addrLen);
 	if (clientFd < 0)
 		return;
 
@@ -167,17 +194,25 @@ void Server::handleClientWrite(int clientFd) {
 	if (client.responseBuffer.empty())
 		return;
 
-	ssize_t sent = send(clientFd, client.responseBuffer.c_str(),
-						client.responseBuffer.size(), 0);
+	// Fill write buffer
+	size_t toWrite = std::min(client.writeBufferSize,
+							  client.responseBuffer.size());
+	client.writeBuffer.assign(
+			client.responseBuffer.begin(),
+			client.responseBuffer.begin() + toWrite
+	);
+
+	// Send buffered data
+	ssize_t sent = send(clientFd, client.writeBuffer.data(),
+						toWrite, 0);
 
 	if (sent < 0 && errno != EWOULDBLOCK && errno != EAGAIN)
 		return (closeConnection(clientFd));
 
 	if (sent > 0) {
 		client.responseBuffer.erase(0, sent);
-		if (client.responseBuffer.empty() && shouldCloseConnection(client)) {
+		if (client.responseBuffer.empty() && shouldCloseConnection(client))
 			closeConnection(clientFd);
-		}
 	}
 }
 
@@ -223,4 +258,8 @@ void Server::stop() {
 	FD_ZERO(&_masterSet);
 	FD_ZERO(&_readSet);
 	FD_ZERO(&_writeSet);
+}
+
+Server::ClientState::ClientState() : writeBufferSize(1024 * 1024) { // 1MB write buffer
+	writeBuffer.reserve(writeBufferSize);
 }
