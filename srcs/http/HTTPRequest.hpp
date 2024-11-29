@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 23:07:40 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/27 12:06:40 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/11/29 17:32:57 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -15,31 +15,35 @@
 
 #include <string>
 #include <map>
-#include <vector>
 
 class HTTPRequest {
-	private:
-		std::string _method;			// HTTP method (GET, POST, etc.)
-		std::string _path;				// Request URL path
-		std::string _version;			// HTTP version
-		std::map<std::string, std::string> _headers;	// Request headers
-		std::string _body;				 // Request body
-
-		bool parseRequestLine(const std::string &line);
-		bool parseHeaders(const std::string &headerSection);
-		void parseBody(std::string &request);
-		static std::string trimWhitespace(const std::string &str);
-
 	public:
+		// Core parsing
 		bool parse(const std::string &rawRequest);
 
+		// Getters
 		const std::string &getMethod() const;
 		const std::string &getPath() const;
 		const std::string &getVersion() const;
 		const std::string &getBody() const;
 		const std::map<std::string, std::string> &getHeaders() const;
+
+		// Header operations
 		bool hasHeader(const std::string &name) const;
 		std::string getHeader(const std::string &name) const;
+
+	private:
+		// Request components
+		std::string _method;
+		std::string _path;
+		std::string _version;
+		std::map<std::string, std::string> _headers;
+		std::string _body;
+
+		// Parsing helpers
+		bool parseRequestLine(const std::string &line);
+		bool parseHeaders(const std::string &headerSection);
+		static std::string trimWhitespace(const std::string &str);
 };
 
 #endif
