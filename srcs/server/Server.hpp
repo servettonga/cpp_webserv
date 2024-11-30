@@ -14,8 +14,6 @@
 #define SERVER_HPP
 
 #include "ServerConfig.hpp"
-#include "../http/HTTPRequest.hpp"
-#include "../http/Response.hpp"
 #include <map>
 #include <string>
 #include <sys/select.h>

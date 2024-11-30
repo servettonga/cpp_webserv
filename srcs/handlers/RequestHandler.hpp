@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 20:05:44 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/29 20:12:06 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/11/30 17:46:28 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -16,9 +16,6 @@
 #include "../http/HTTPRequest.hpp"
 #include "../http/Response.hpp"
 #include "../server/ServerConfig.hpp"
-#include "DirectoryHandler.hpp"
-#include "FileHandler.hpp"
-#include "MimeTypes.hpp"
 
 class RequestHandler {
 	public:
