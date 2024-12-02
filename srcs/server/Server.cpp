@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 13:04:01 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/30 17:09:46 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/02 16:53:52 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -154,7 +154,7 @@ void Server::processCompleteRequests(int clientFd, ClientState &client) {
 	if (client.requestBuffer.find("GET") == 0 ||
 		client.requestBuffer.find("DELETE") == 0) {
 		processRequest(clientFd, client);
-		client.requestBuffer.clear();  // Clear buffer after processing
+		client.requestBuffer.clear();
 		return;
 	}
 
@@ -169,7 +169,7 @@ void Server::processCompleteRequests(int clientFd, ClientState &client) {
 			);
 			if (client.requestBuffer.length() >= headerEnd + 4 + contentLength) {
 				processRequest(clientFd, client);
-				client.requestBuffer.clear();  // Clear buffer after processing
+				client.requestBuffer.clear();
 			}
 		}
 	}

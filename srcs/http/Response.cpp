@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 20:07:58 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/29 17:19:04 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/02 19:04:09 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -91,4 +91,72 @@ std::string Response::getStatusText() const {
 
 		default: return "Unknown";
 	}
+}
+
+Response Response::makeErrorResponse(int statusCode) {
+	Response response(statusCode);
+	response.addHeader("Content-Type", "text/html");
+
+	// Map of custom error messages
+	std::map<int, std::string> errorMessages;
+	errorMessages[400] = "The request could not be understood by the server.";
+	errorMessages[401] = "Authentication is required and has failed or not been provided.";
+	errorMessages[403] = "You don't have permission to access this resource.";
+	errorMessages[404] = "The requested resource could not be found on this server.";
+	errorMessages[405] = "The requested method is not allowed for this resource.";
+	errorMessages[413] = "The request entity is larger than the server is willing to process.";
+	errorMessages[415] = "The server does not support the media type of the requested data.";
+	errorMessages[500] = "The server encountered an unexpected condition.";
+	errorMessages[501] = "The server does not support the functionality required.";
+	errorMessages[502] = "The server received an invalid response from an upstream server.";
+	errorMessages[503] = "The server is temporarily unable to handle the request.";
+
+	// Determine error category for styling
+	std::string colorClass = (statusCode >= 500) ? "#ffebee" : "#fff3e0";
+	std::string buttonColor = (statusCode >= 500) ? "#f44336" : "#ff9800";
+
+	std::string message = errorMessages[statusCode];
+	if (message.empty()) {
+		message = "An error occurred while processing your request.";
+	}
+
+        std::string body =
+            "<html><head><title>" + StringUtils::numToString(statusCode) + " " +
+            response.getStatusText() +
+            "</title>"
+            "<style>"
+            "body { font-family: Arial, sans-serif; margin: 0; padding: 20px; "
+            "background-color: " +
+            colorClass +
+            "; }"
+            ".container { text-align: center; padding: 30px; max-width: 800px; "
+            "margin: 0 auto; }"
+            "h1 { color: #333; margin: 20px 0; }"
+            ".error-code { font-size: 72px; color: #666; margin: 20px 0; }"
+            ".message { color: #666; margin: 30px 0; line-height: 1.5; }"
+            ".home-link { display: inline-block; padding: 10px 20px; "
+            "background-color: " +
+            buttonColor +
+            ";"
+            "    color: white; text-decoration: none; border-radius: 4px; "
+            "margin-top: 30px; }"
+            ".home-link:hover { opacity: 0.9; }"
+            "</style></head>"
+            "<body>\n"
+            "    <div class='container'>\n"
+            "        <div class='error-code'>" +
+            StringUtils::numToString(statusCode) +
+            "</div>\n"
+            "        <h1>" +
+            response.getStatusText() +
+            "</h1>\n"
+            "        <p class='message'>" +
+            message +
+            "</p>\n"
+            "        <a href='/' class='home-link'>Return to Home</a>\n"
+            "    </div>\n"
+            "</body></html>";
+
+        response.setBody(body);
+        return response;
 }

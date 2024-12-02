@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 20:05:44 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/30 17:46:28 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/02 17:25:55 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -18,10 +18,6 @@
 #include "../server/ServerConfig.hpp"
 
 class RequestHandler {
-	public:
-		explicit RequestHandler(const ServerConfig &config);
-		Response handleRequest(const HTTPRequest &request);
-
 	private:
 		Response handleGET(const HTTPRequest &request) const;
 		Response handlePOST(const HTTPRequest &request) const;
@@ -29,9 +25,12 @@ class RequestHandler {
 
 		const LocationConfig *getLocation(const std::string &uri) const;
 		bool isMethodAllowed(const std::string &method, const LocationConfig &loc) const;
-		Response generateErrorResponse(int statusCode, const std::string &message) const;
 
 		const ServerConfig &_config;
+
+	public:
+		explicit RequestHandler(const ServerConfig &config);
+		Response handleRequest(const HTTPRequest &request);
 };
 
 #endif

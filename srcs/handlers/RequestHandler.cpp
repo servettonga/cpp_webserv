@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 20:05:44 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/29 21:31:42 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/02 17:44:10 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -19,8 +19,22 @@ RequestHandler::RequestHandler(const ServerConfig &config) : _config(config) {}
 
 Response RequestHandler::handleRequest(const HTTPRequest &request) {
 	const LocationConfig *location = getLocation(request.getPath());
-	if (!location)
-		return generateErrorResponse(404, "Not Found");
+	if (!location) {
+		// Get the error page path from config using find()
+		std::map<int, std::string>::const_iterator it = _config.error_pages.find(404);
+		if (it != _config.error_pages.end()) {
+			// Try to serve the error page
+			std::string fullPath = "www" + it->second;
+			struct stat st;
+			if (stat(fullPath.c_str(), &st) == 0 && !S_ISDIR(st.st_mode)) {
+				Response response = FileHandler::serveFile(fullPath, it->second);
+				response.setStatusCode(404);
+				return response;
+			}
+		}
+		// Fall back to default error if custom page not found
+		return Response::makeErrorResponse(404);
+	}
 
 	if (!isMethodAllowed(request.getMethod(), *location)) {
 		Response error(405);
@@ -37,7 +51,7 @@ Response RequestHandler::handleRequest(const HTTPRequest &request) {
 	else if (request.getMethod() == "DELETE")
 		return handleDELETE(request);
 
-	return generateErrorResponse(501, "Not Implemented");
+	return Response::makeErrorResponse(501);
 }
 
 const LocationConfig* RequestHandler::getLocation(const std::string &uri) const {
@@ -75,20 +89,13 @@ bool RequestHandler::isMethodAllowed(const std::string &method, const LocationCo
 	return false;
 }
 
-Response RequestHandler::generateErrorResponse(int statusCode, const std::string &message) const {
-	Response response(statusCode);
-	response.addHeader("Content-Type", "text/html");
-	response.setBody("<html><body><h1>" + message + "</h1></body></html>");
-	return response;
-}
-
 Response RequestHandler::handleGET(const HTTPRequest &request) const {
 	if (!FileHandler::validatePath(request.getPath()))
-		return generateErrorResponse(403, "Forbidden");
+		return Response::makeErrorResponse(403);
 
 	const LocationConfig *location = getLocation(request.getPath());
 	if (!location)
-		return generateErrorResponse(404, "Not Found");
+		return Response::makeErrorResponse(404);
 
 	std::string fullPath = FileHandler::constructFilePath(request.getPath(), *location);
 
@@ -100,21 +107,24 @@ Response RequestHandler::handleGET(const HTTPRequest &request) const {
 			return FileHandler::serveFile(fullPath, request.getPath());
 	}
 
-	return generateErrorResponse(404, "Not Found");
+	return Response::makeErrorResponse(404);
 }
 
 Response RequestHandler::handlePOST(const HTTPRequest &request) const {
 	const LocationConfig *location = getLocation(request.getPath());
 	if (!location)
-		return generateErrorResponse(404, "Not Found");
+		return Response::makeErrorResponse(404);
+
+	// Check body size against location limit
+	if (request.getBody().size() > location->client_max_body_size)
+		return Response::makeErrorResponse(413);
 
 	if (!isMethodAllowed("POST", *location))
-		return generateErrorResponse(405, "Method Not Allowed");
+		return Response::makeErrorResponse(405);
 
-	// File upload handling
 	std::string contentType = request.getHeader("Content-Type");
 	if (contentType.find("multipart/form-data") == std::string::npos)
-		return generateErrorResponse(415, "Unsupported Media Type");
+		return Response::makeErrorResponse(415);
 
 	return FileHandler::handleFileUpload(request, *location);
 }
@@ -122,10 +132,10 @@ Response RequestHandler::handlePOST(const HTTPRequest &request) const {
 Response RequestHandler::handleDELETE(const HTTPRequest &request) const {
 	const LocationConfig *location = getLocation(request.getPath());
 	if (!location)
-		return generateErrorResponse(404, "Not Found");
+		return Response::makeErrorResponse(404);
 
 	if (!isMethodAllowed("DELETE", *location))
-		return generateErrorResponse(405, "Method Not Allowed");
+		return Response::makeErrorResponse(405);
 
 	return FileHandler::handleFileDelete(request, *location);
 }

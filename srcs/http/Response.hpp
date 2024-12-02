@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 20:07:58 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/29 17:19:40 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/02 17:41:57 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -34,7 +34,7 @@ class Response {
 		void setStatusCode(int code);
 		void setBody(const std::string &body);
 		void addHeader(const std::string &name, const std::string &value);
-
+		static Response makeErrorResponse(int statusCode);
 		std::string toString() const;	// Generate response
 };
 
