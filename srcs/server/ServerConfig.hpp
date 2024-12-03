@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/11/03 19:45:02 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/24 19:25:14 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/03 14:16:35 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -63,8 +63,8 @@ struct ServerConfig {
 			client_timeout(60),
 			client_max_body_size(1024 * 1024) { // 1MB default
 		index = "index.html";
-		error_pages[404] = "404.html";
-		error_pages[500] = "500.html";
+		error_pages[404] = "/404.html";
+		error_pages[500] = "/500.html";
 	}
 
 	// Helper method to find location config for a given path

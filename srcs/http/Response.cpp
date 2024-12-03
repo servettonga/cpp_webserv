@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 20:07:58 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/02 19:04:09 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/03 14:18:07 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -153,7 +153,6 @@ Response Response::makeErrorResponse(int statusCode) {
             "        <p class='message'>" +
             message +
             "</p>\n"
-            "        <a href='/' class='home-link'>Return to Home</a>\n"
             "    </div>\n"
             "</body></html>";
 

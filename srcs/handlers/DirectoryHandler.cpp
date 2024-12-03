@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/11/29 20:07:50 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/29 22:14:57 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/03 12:06:03 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -26,13 +26,18 @@ Response DirectoryHandler::handleDirectory(const std::string &path, const Locati
 		if (stat(indexPath.c_str(), &st) == 0 && !S_ISDIR(st.st_mode))
 			return FileHandler::serveFile(indexPath, "/index.html");
 	}
-
 	if (!loc.autoindex)
-		return Response(403, "Forbidden");
+		return Response::makeErrorResponse(403);
 
-	std::string listing = createListing(path, loc.path);
+	// Get the request URI by removing the root path prefix
+	std::string requestUri = path;
+	if (requestUri.find(loc.root) == 0)
+		requestUri = requestUri.substr(loc.root.length());
+	if (!requestUri.empty() && requestUri[0] != '/')
+		requestUri = "/" + requestUri;
+	std::string listing = createListing(path, requestUri);
 	if (listing.empty())
-		return Response(500, "Internal Server Error");
+		return Response::makeErrorResponse(500);
 
 	Response response(200);
 	response.addHeader("Content-Type", "text/html");
@@ -45,9 +50,16 @@ std::string DirectoryHandler::createListing(const std::string &path, const std::
 	if (!dir)
 		return "";
 
+	// Get the full URL path for display and links
+	std::string displayPath = urlPath;
+	if (displayPath.empty() || displayPath[0] != '/')
+		displayPath = "/" + displayPath;
+	if (displayPath[displayPath.length() - 1] == '/')
+		displayPath = displayPath.substr(0, displayPath.length() - 1);
+
 	std::stringstream html;
-	html << createListingHeader(urlPath)
-		 << createListingBody(dir, path, urlPath)
+	html << createListingHeader(displayPath)
+		 << createListingBody(dir, path, displayPath)
 		 << "</table></body></html>";
 
 	closedir(dir);
@@ -94,8 +106,13 @@ std::string DirectoryHandler::createListingBody(DIR* dir, const std::string &pat
 	std::stringstream body;
 	struct dirent* entry;
 
-	if (urlPath != "/")
-		body << "<tr><td><a href=\"../\">..</a></td><td>-</td><td>-</td><td></td></tr>";
+	// Add the parent directory link
+	if (urlPath != "/" && !urlPath.empty()) {
+		std::string parentPath = urlPath.substr(0, urlPath.find_last_of('/'));
+		if (parentPath.empty()) parentPath = "/";
+		body << "<tr><td><a href=\"" << parentPath << "\">..</a></td>"
+			 << "<td>-</td><td>-</td><td></td></tr>";
+	}
 
 	while ((entry = readdir(dir)) != NULL) {
 		std::string name = entry->d_name;
@@ -105,11 +122,10 @@ std::string DirectoryHandler::createListingBody(DIR* dir, const std::string &pat
 		struct stat st;
 		std::string fullPath = path + "/" + name;
 		if (stat(fullPath.c_str(), &st) == 0) {
-			bool needsSlash = !urlPath.empty() && urlPath[urlPath.length() - 1] != '/';
+			// Construct the proper URL path for links
+			std::string entryUrlPath = urlPath + "/" + FileHandler::urlDecode(name);
 
-			body << "<tr><td><a href=\"" << urlPath
-				 << (needsSlash ? "/" : "")
-				 << FileHandler::urlDecode(name)
+			body << "<tr><td><a href=\"" << entryUrlPath
 				 << (S_ISDIR(st.st_mode) ? "/" : "")
 				 << "\">" << name << "</a></td>"
 				 << "<td>" << formatFileSize(st) << "</td>"
@@ -118,9 +134,7 @@ std::string DirectoryHandler::createListingBody(DIR* dir, const std::string &pat
 
 			if (!S_ISDIR(st.st_mode)) {
 				body << "<a class='delete-btn' onclick='deleteFile(\""
-					 << urlPath
-					 << (needsSlash ? "/" : "")
-					 << FileHandler::urlDecode(name) << "\")'>Delete</a>";
+					 << entryUrlPath << "\")'>Delete</a>";
 			}
 
 			body << "</td></tr>";

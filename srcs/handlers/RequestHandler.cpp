@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 20:05:44 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/02 17:44:10 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/03 14:15:13 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -14,25 +14,27 @@
 #include "FileHandler.hpp"
 #include "DirectoryHandler.hpp"
 #include <sys/stat.h>
+#include <cstring>
 
 RequestHandler::RequestHandler(const ServerConfig &config) : _config(config) {}
 
 Response RequestHandler::handleRequest(const HTTPRequest &request) {
 	const LocationConfig *location = getLocation(request.getPath());
 	if (!location) {
-		// Get the error page path from config using find()
+		// Get the error page path from config
 		std::map<int, std::string>::const_iterator it = _config.error_pages.find(404);
 		if (it != _config.error_pages.end()) {
-			// Try to serve the error page
-			std::string fullPath = "www" + it->second;
+			std::string fullPath = _config.root + it->second;
 			struct stat st;
-			if (stat(fullPath.c_str(), &st) == 0 && !S_ISDIR(st.st_mode)) {
-				Response response = FileHandler::serveFile(fullPath, it->second);
-				response.setStatusCode(404);
-				return response;
+			int statResult = stat(fullPath.c_str(), &st);
+			if (statResult == 0) {
+				if (!S_ISDIR(st.st_mode)) {
+					Response response = FileHandler::serveFile(fullPath, it->second);
+					response.setStatusCode(404);
+					return response;
+				}
 			}
 		}
-		// Fall back to default error if custom page not found
 		return Response::makeErrorResponse(404);
 	}
 
@@ -58,21 +60,41 @@ const LocationConfig* RequestHandler::getLocation(const std::string &uri) const 
 	const LocationConfig* bestMatch = NULL;
 	size_t bestLength = 0;
 
-	if (uri == "/") {
-		for (std::vector<LocationConfig>::const_iterator it = _config.locations.begin();
-			 it != _config.locations.end(); ++it) {
-			if (it->path == "/")
-				return &(*it);
+	// First try exact matches
+	for (std::vector<LocationConfig>::const_iterator it = _config.locations.begin();
+		 it != _config.locations.end(); ++it) {
+		if (it->path == uri)
+			return &(*it);
+	}
+
+	// Then find the longest matching prefix
+	for (std::vector<LocationConfig>::const_iterator it = _config.locations.begin();
+		 it != _config.locations.end(); ++it) {
+		// Root location should be the last resort
+		if (it->path == "/") {
+			if (!bestMatch) {
+				bestMatch = &(*it);
+				bestLength = 1;
+			}
+			continue;
+		}
+
+		// Check if URI starts with this location's path
+		if (uri.find(it->path) == 0) {
+			// Only match complete path segments
+			if (uri.length() == it->path.length() ||
+				uri[it->path.length()] == '/') {
+				if (it->path.length() > bestLength) {
+					bestMatch = &(*it);
+					bestLength = it->path.length();
+				}
+			}
 		}
 	}
 
-	for (std::vector<LocationConfig>::const_iterator it = _config.locations.begin();
-		 it != _config.locations.end(); ++it) {
-		if (uri.find(it->path) == 0 && it->path.length() > bestLength) {
-			bestMatch = &(*it);
-			bestLength = it->path.length();
-		}
-	}
+	// Return NULL for unmatched paths, even if root location exists
+	if (bestMatch && bestMatch->path == "/" && uri != "/")
+		return NULL;
 
 	return bestMatch;
 }
