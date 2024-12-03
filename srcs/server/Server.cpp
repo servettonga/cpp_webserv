@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 13:04:01 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/02 16:53:52 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/03 18:31:13 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -150,28 +150,54 @@ void Server::processCompleteRequests(int clientFd, ClientState &client) {
 	if (headerEnd == std::string::npos)
 		return;
 
-	// For GET and DELETE requests
+	if (client.requestBuffer.find("POST") == 0) {
+		size_t clPos = client.requestBuffer.find("Content-Length: ");
+		if (clPos == std::string::npos || clPos > headerEnd) {
+			Response response(411, "Length Required");
+			client.responseBuffer = response.toString();
+			FD_SET(clientFd, &_writeSet);
+			client.requestBuffer.clear();
+			return;
+		}
+		// Parse Content-Length value
+		size_t clEnd = client.requestBuffer.find("\r\n", clPos);
+		if (clEnd == std::string::npos) {
+			Response response(400, "Bad Request");
+			client.responseBuffer = response.toString();
+			FD_SET(clientFd, &_writeSet);
+			client.requestBuffer.clear();
+			return;
+		}
+		size_t contentLength = std::atol(
+				client.requestBuffer.substr(clPos + 16, clEnd - (clPos + 16)).c_str()
+		);
+
+		// Get location and check the size limit before accepting body
+		const LocationConfig *location = _config.getLocation(
+				client.requestBuffer.substr(
+						client.requestBuffer.find(" ") + 1,
+						client.requestBuffer.find(" HTTP/") - client.requestBuffer.find(" ") - 1
+				)
+		);
+		if (location && contentLength > location->client_max_body_size) {
+			Response response = Response::makeErrorResponse(413);
+			client.responseBuffer = response.toString();
+			FD_SET(clientFd, &_writeSet);
+			client.requestBuffer.clear();
+			return;
+		}
+		if (client.requestBuffer.length() >= headerEnd + 4 + contentLength) {
+			processRequest(clientFd, client);
+			client.requestBuffer.clear();
+		}
+		return;
+	}
+
 	if (client.requestBuffer.find("GET") == 0 ||
 		client.requestBuffer.find("DELETE") == 0) {
 		processRequest(clientFd, client);
 		client.requestBuffer.clear();
 		return;
-	}
-
-	// For POST requests
-	size_t clPos = client.requestBuffer.find("Content-Length: ");
-	if (clPos != std::string::npos && clPos < headerEnd) {
-		size_t clEnd = client.requestBuffer.find("\r\n", clPos);
-		if (clEnd != std::string::npos) {
-			size_t contentLength = std::atol(
-					client.requestBuffer.substr(clPos + 16,
-												clEnd - (clPos + 16)).c_str()
-			);
-			if (client.requestBuffer.length() >= headerEnd + 4 + contentLength) {
-				processRequest(clientFd, client);
-				client.requestBuffer.clear();
-			}
-		}
 	}
 }
 
