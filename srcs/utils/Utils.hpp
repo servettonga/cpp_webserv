@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/11/03 22:50:59 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/03 22:51:06 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/11/09 19:25:33 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -31,6 +31,10 @@ namespace Utils {
 			static std::string replace(const std::string& str,
 									   const std::string& from,
 									   const std::string& to);
+			static std::string numToString(int value);
+			static std::string numToString(long value);
+			static std::string numToString(unsigned long value);
+			static std::string numToString(long long value);
 	};
 
 	// File operations
@@ -71,7 +75,7 @@ namespace Utils {
 			static std::string urlEncode(const std::string& str);
 			static std::string urlDecode(const std::string& str);
 			static std::map<std::string, std::string> parseQueryString(const std::string& query);
-			static std::string getMimeType(const std::string& extension);
+			static std::string getMimeType(const std::string &ext);
 	};
 
 	// System utilities

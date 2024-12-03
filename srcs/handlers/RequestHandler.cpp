@@ -6,192 +6,158 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 20:05:44 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/06 18:33:17 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/03 14:15:13 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "RequestHandler.hpp"
+#include "FileHandler.hpp"
+#include "DirectoryHandler.hpp"
+#include <sys/stat.h>
+#include <cstring>
 
-RequestHandler::RequestHandler(const ServerConfig &config) : _config(config) {
-	/*
-		Constructor:
-		1. Store server configuration
-		2. Initialize CGI handler
-	*/
-	(void)_config;
-}
-
-RequestHandler::~RequestHandler() {
-
-}
+RequestHandler::RequestHandler(const ServerConfig &config) : _config(config) {}
 
 Response RequestHandler::handleRequest(const HTTPRequest &request) {
-	/*
-		handleRequest(request):
-		1. Validate request basics (method, URI, version)
-		2. Get matching location configuration
-		3. Check if method is allowed
-		4. IF CGI request:
-		   - Route to CGI handler
-		5. ELSE:
-		   - Route to appropriate method handler
-		6. IF error occurs:
-		   - Generate error response
-	*/
-	(void)request;
-	return Response();
+	const LocationConfig *location = getLocation(request.getPath());
+	if (!location) {
+		// Get the error page path from config
+		std::map<int, std::string>::const_iterator it = _config.error_pages.find(404);
+		if (it != _config.error_pages.end()) {
+			std::string fullPath = _config.root + it->second;
+			struct stat st;
+			int statResult = stat(fullPath.c_str(), &st);
+			if (statResult == 0) {
+				if (!S_ISDIR(st.st_mode)) {
+					Response response = FileHandler::serveFile(fullPath, it->second);
+					response.setStatusCode(404);
+					return response;
+				}
+			}
+		}
+		return Response::makeErrorResponse(404);
+	}
+
+	if (!isMethodAllowed(request.getMethod(), *location)) {
+		Response error(405);
+		error.addHeader("Content-Type", "text/html");
+		error.addHeader("Allow", "GET, POST");
+		error.setBody("<html><body><h1>Method Not Allowed</h1></body></html>");
+		return error;
+	}
+
+	if (request.getMethod() == "GET")
+		return handleGET(request);
+	else if (request.getMethod() == "POST")
+		return handlePOST(request);
+	else if (request.getMethod() == "DELETE")
+		return handleDELETE(request);
+
+	return Response::makeErrorResponse(501);
 }
 
-Response RequestHandler::handleGET(const HTTPRequest &request) {
-	/*
-		handleGET(request):
-		1. Validate request path
-		2. IF directory:
-		   - Check for index file
-		   - IF no index and autoindex enabled:
-			 Return directory listing
-		   - ELSE:
-			 Return 403 Forbidden
-		3. IF file:
-		   - Check permissions
-		   - Get content type
-		   - Read file
-		   - Return response
-		4. ELSE:
-		   Return 404 Not Found
-	*/
-	(void)request;
-	return Response();
+const LocationConfig* RequestHandler::getLocation(const std::string &uri) const {
+	const LocationConfig* bestMatch = NULL;
+	size_t bestLength = 0;
+
+	// First try exact matches
+	for (std::vector<LocationConfig>::const_iterator it = _config.locations.begin();
+		 it != _config.locations.end(); ++it) {
+		if (it->path == uri)
+			return &(*it);
+	}
+
+	// Then find the longest matching prefix
+	for (std::vector<LocationConfig>::const_iterator it = _config.locations.begin();
+		 it != _config.locations.end(); ++it) {
+		// Root location should be the last resort
+		if (it->path == "/") {
+			if (!bestMatch) {
+				bestMatch = &(*it);
+				bestLength = 1;
+			}
+			continue;
+		}
+
+		// Check if URI starts with this location's path
+		if (uri.find(it->path) == 0) {
+			// Only match complete path segments
+			if (uri.length() == it->path.length() ||
+				uri[it->path.length()] == '/') {
+				if (it->path.length() > bestLength) {
+					bestMatch = &(*it);
+					bestLength = it->path.length();
+				}
+			}
+		}
+	}
+
+	// Return NULL for unmatched paths, even if root location exists
+	if (bestMatch && bestMatch->path == "/" && uri != "/")
+		return NULL;
+
+	return bestMatch;
 }
 
-Response RequestHandler::handlePOST(const HTTPRequest &request) {
-	/*
-		handlePOST(request):
-		1. Validate request path
-		2. Check content length limits
-		3. IF CGI request:
-		   - Route to CGI handler
-		4. ELSE IF file upload:
-		   - Validate file type
-		   - Store file
-		   - Return success response
-		5. ELSE:
-		   Return 400 Bad Request
-	*/
-	(void)request;
-	return Response();
-}
+bool RequestHandler::isMethodAllowed(const std::string &method, const LocationConfig &loc) const {
+	if (method.empty())
+		return false;
 
-Response RequestHandler::handleDELETE(const HTTPRequest &request) {
-	/*
-		handleDELETE(request):
-		1. Validate request path
-		2. Check permissions
-		3. IF file exists:
-		   - Delete file
-		   - Return success response
-		4. ELSE:
-		   Return 404 Not Found
-	*/
-	(void)request;
-	return Response();
-}
-
-bool RequestHandler::isMethodAllowed(const std::string &method, const LocationConfig &loc) {
-	/*
-		isMethodAllowed(method, location):
-		1. Get allowed methods from location config
-		2. Check if method is in allowed list
-		3. Return result
-	*/
-	(void)method;
-	(void)loc;
+	for (std::vector<std::string>::const_iterator it = loc.methods.begin();
+		 it != loc.methods.end(); ++it) {
+		if (*it == method)
+			return true;
+	}
 	return false;
 }
 
-bool RequestHandler::isCGIRequest(const std::string &uri) {
-	/*
-		isCGIRequest(uri):
-		1. Get file extension
-		2. Check against CGI extensions
-		3. Return result
-	*/
-	(void)uri;
-	return false;
+Response RequestHandler::handleGET(const HTTPRequest &request) const {
+	if (!FileHandler::validatePath(request.getPath()))
+		return Response::makeErrorResponse(403);
+
+	const LocationConfig *location = getLocation(request.getPath());
+	if (!location)
+		return Response::makeErrorResponse(404);
+
+	std::string fullPath = FileHandler::constructFilePath(request.getPath(), *location);
+
+	struct stat st;
+	if (stat(fullPath.c_str(), &st) == 0) {
+		if (S_ISDIR(st.st_mode))
+			return DirectoryHandler::handleDirectory(fullPath, *location);
+		else
+			return FileHandler::serveFile(fullPath, request.getPath());
+	}
+
+	return Response::makeErrorResponse(404);
 }
 
-Response RequestHandler::serveStaticFile(const std::string &path) {
-	/*
-		serveStaticFile(path):
-		1. Open file
-		2. Read content
-		3. Get content type
-		4. Create response with file content
-		5. Return response
-	*/
-	(void)path;
-	return Response();
+Response RequestHandler::handlePOST(const HTTPRequest &request) const {
+	const LocationConfig *location = getLocation(request.getPath());
+	if (!location)
+		return Response::makeErrorResponse(404);
+
+	// Check body size against location limit
+	if (request.getBody().size() > location->client_max_body_size)
+		return Response::makeErrorResponse(413);
+
+	if (!isMethodAllowed("POST", *location))
+		return Response::makeErrorResponse(405);
+
+	std::string contentType = request.getHeader("Content-Type");
+	if (contentType.find("multipart/form-data") == std::string::npos)
+		return Response::makeErrorResponse(415);
+
+	return FileHandler::handleFileUpload(request, *location);
 }
 
-Response RequestHandler::handleDirectory(const std::string &path) {
-	/*
-		handleDirectory(path):
-		1. Check for index file
-		2. IF index exists:
-		   - Serve index file
-		3. ELSE IF autoindex enabled:
-		   - Generate directory listing
-		4. ELSE:
-		   - Return 403 Forbidden
-	*/
-	(void)path;
-	return Response();
-}
+Response RequestHandler::handleDELETE(const HTTPRequest &request) const {
+	const LocationConfig *location = getLocation(request.getPath());
+	if (!location)
+		return Response::makeErrorResponse(404);
 
-Response RequestHandler::generateErrorResponse(int statusCode) {
-	/*
-		generateErrorResponse(statusCode):
-		1. Check for custom error page
-		2. IF custom page exists:
-		   - Serve custom error page
-		3. ELSE:
-		   - Generate default error response
-	*/
-	(void)statusCode;
-	return Response();
-}
+	if (!isMethodAllowed("DELETE", *location))
+		return Response::makeErrorResponse(405);
 
-std::string RequestHandler::getContentType(const std::string &path) {
-	/*
-		getContentType(path):
-		1. Get file extension
-		2. Look up MIME type
-		3. Return content type
-	*/
-	(void)path;
-	return std::string();
-}
-
-bool RequestHandler::validatePath(const std::string &path) {
-	/*
-		validatePath(path):
-		1. Check for path traversal
-		2. Verify path is within root
-		3. Check file exists
-		4. Check permissions
-		5. Return validation result
-	*/
-	(void)path;
-	return false;
-}
-
-const LocationConfig *RequestHandler::getLocation(const std::string &uri) {
-	/*
-		getLocation(uri):
-		1. Find most specific matching location
-		2. Return location config
-		3. Return NULL if no match
-	*/
-	(void)uri;
-	return NULL;
+	return FileHandler::handleFileDelete(request, *location);
 }

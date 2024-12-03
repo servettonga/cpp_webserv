@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 20:05:44 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/04 22:11:55 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/02 17:25:55 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -16,38 +16,21 @@
 #include "../http/HTTPRequest.hpp"
 #include "../http/Response.hpp"
 #include "../server/ServerConfig.hpp"
-#include "CGIHandler.hpp"
-#include <map>
-#include <string>
 
 class RequestHandler {
-	public:
-		// Constructor and Destructor
-		explicit RequestHandler(const ServerConfig &config);
-		~RequestHandler();
-
-		// Main handler method
-		Response handleRequest(const HTTPRequest &request);
-
 	private:
-		// Configuration
+		Response handleGET(const HTTPRequest &request) const;
+		Response handlePOST(const HTTPRequest &request) const;
+		Response handleDELETE(const HTTPRequest &request) const;
+
+		const LocationConfig *getLocation(const std::string &uri) const;
+		bool isMethodAllowed(const std::string &method, const LocationConfig &loc) const;
+
 		const ServerConfig &_config;
-		CGIHandler _cgiHandler;
 
-		// Method handlers
-		Response handleGET(const HTTPRequest &request);
-		Response handlePOST(const HTTPRequest &request);
-		Response handleDELETE(const HTTPRequest &request);
-
-		// Helper methods
-		bool isMethodAllowed(const std::string &method, const LocationConfig &loc);
-		bool isCGIRequest(const std::string &uri);
-		Response serveStaticFile(const std::string &path);
-		Response handleDirectory(const std::string &path);
-		Response generateErrorResponse(int statusCode);
-		std::string getContentType(const std::string &path);
-		bool validatePath(const std::string &path);
-		const LocationConfig *getLocation(const std::string &uri);
+	public:
+		explicit RequestHandler(const ServerConfig &config);
+		Response handleRequest(const HTTPRequest &request);
 };
 
 #endif

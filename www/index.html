@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Home Page</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f4;
+        }
+        header {
+            background-color: #333;
+            color: #fff;
+            padding: 1rem 0;
+            text-align: center;
+        }
+        nav {
+            display: flex;
+            justify-content: center;
+            background-color: #444;
+        }
+        nav a {
+            color: #fff;
+            padding: 1rem;
+            text-decoration: none;
+        }
+        nav a:hover {
+            background-color: #555;
+        }
+        section {
+            padding: 2rem;
+            text-align: center;
+        }
+        footer {
+            background-color: #333;
+            color: #fff;
+            text-align: center;
+            padding: 1rem 0;
+            position: fixed;
+            width: 100%;
+            bottom: 0;
+        }
+        .upload-form {
+            margin-top: 2rem;
+            text-align: center;
+        }
+
+        .upload-form input[type="file"] {
+            margin-right: 1rem;
+            padding: 0.5rem;
+        }
+
+        .upload-form button {
+            padding: 0.5rem 1rem;
+            cursor: pointer;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+        }
+
+        .upload-form button:hover {
+            background-color: #45a049;
+        }
+
+        .error-message {
+            color: #721c24;
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            border-radius: 4px;
+            padding: 1rem;
+            margin: 1rem auto;
+            max-width: 80%;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+<header>
+    <h1>Home Page</h1>
+</header>
+<nav>
+    <a href="#home">Home</a>
+    <a href="files">Files Directory</a>
+</nav>
+<section id="home">
+    <h2>Home</h2>
+    <p>This is the home section of the website.</p>
+</section>
+<section id="upload">
+    <h2>Upload File</h2>
+    <form class="upload-form" id="uploadForm" enctype="multipart/form-data">
+        <input type="file" name="file" required>
+        <button type="submit">Upload</button>
+    </form>
+    <div id="errorMessage" class="error-message"></div>
+</section>
+<footer>
+    <p>&copy; 2024 Website</p>
+</footer>
+<script>
+    function extractErrorMessage(htmlString) {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(htmlString, 'text/html');
+
+        // Try to find the error message in common locations
+        const errorText = doc.querySelector('body')?.textContent?.trim() ||
+            doc.querySelector('pre')?.textContent?.trim() ||
+            doc.querySelector('p')?.textContent?.trim() ||
+            'Unknown error occurred';
+
+        return errorText;
+    }
+
+    function showError(message) {
+        const errorElement = document.getElementById('errorMessage');
+        errorElement.textContent = message;
+        errorElement.style.display = 'block';
+
+        setTimeout(() => {
+            errorElement.style.display = 'none';
+        }, 10000);
+    }
+
+    document.getElementById('uploadForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+
+        const errorElement = document.getElementById('errorMessage');
+        errorElement.style.display = 'none';
+
+        if (confirm('Are you sure you want to upload this file?')) {
+            const formData = new FormData(this);
+            const file = this.querySelector('input[type="file"]').files[0];
+
+            // Check file size before upload
+            if (file.size > 10 * 1024 * 1024) { // 10MB limit
+                showError('File size exceeds 10MB limit');
+                return;
+            }
+
+            fetch('/files/uploads', {
+                method: 'POST',
+                body: formData
+            })
+                .then(response => {
+                    if (response.ok) {
+                        alert('File uploaded successfully');
+                        window.location.href = '/files/uploads';
+                    } else {
+                        return response.text().then(text => {
+                            const errorMessage = extractErrorMessage(text);
+                            showError(errorMessage);
+                        });
+                    }
+                })
+                .catch(err => {
+                    showError('Upload failed: ' + err.message);
+                });
+        }
+    });
+</script>
+</body>
+</html>

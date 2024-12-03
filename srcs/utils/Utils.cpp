@@ -6,10 +6,11 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/11/03 22:50:59 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/03 22:52:03 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/11/24 10:10:40 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
+#include <sstream>
 #include "Utils.hpp"
 
 /*
@@ -36,6 +37,30 @@
 	4. Return trimmed string
 */
 
+std::string Utils::StringUtils::numToString(int value) {
+	std::stringstream ss;
+	ss << value;
+	return ss.str();
+}
+
+std::string Utils::StringUtils::numToString(long value) {
+	std::stringstream ss;
+	ss << value;
+	return ss.str();
+}
+
+std::string Utils::StringUtils::numToString(unsigned long value) {
+	std::stringstream ss;
+	ss << value;
+	return ss.str();
+}
+
+std::string Utils::StringUtils::numToString(long long value) {
+	std::stringstream ss;
+	ss << value;
+	return ss.str();
+}
+
 /*
 	FileUtils Implementation
 */
@@ -60,12 +85,20 @@
 	TimeUtils Implementation
 */
 
-/*
-	getCurrentTime():
-	1. Get current time
-	2. Format according to ISO 8601
-	3. Return formatted string
-*/
+std::string Utils::TimeUtils::getCurrentTime() {
+	/*
+		getCurrentTime():
+		1. Get current time
+		2. Format according to ISO 8601
+		3. Return formatted string
+	*/
+	time_t now = time(0);
+	struct tm tstruct = {};
+	char buf[80];
+	tstruct = *localtime(&now);
+	strftime(buf, sizeof(buf), "%Y-%m-%d %X", &tstruct);
+	return buf;
+}
 
 /*
 	getHTTPDate():
@@ -120,6 +153,28 @@
 */
 
 /*
+	@see: https://developer.mozilla.org/en-US/docs/Web/HTTP/MIME_types/Common_types
+*/
+std::string Utils::HTTPUtils::getMimeType(const std::string &ext) {
+	if (ext == "txt") return "text/plain";
+	if (ext == "html" || ext == "htm") return "text/html";
+	if (ext == "json") return "application/json";
+	if (ext == "js") return "application/javascript";
+	if (ext == "css") return "text/css";
+	if (ext == "jpg" || ext == "jpeg") return "image/jpeg";
+	if (ext == "png") return "image/png";
+	if (ext == "gif") return "image/gif";
+	if (ext == "svg") return "image/svg+xml";
+	if (ext == "ico") return "image/x-icon";
+	if (ext == "pdf") return "application/pdf";
+	if (ext == "zip") return "application/zip";
+	if (ext == "tar") return "application/x-tar";
+	if (ext == "xml") return "application/xml";
+	if (ext == "sh") return "application/x-sh";
+	return "application/octet-stream";
+}
+
+/*
 	SystemUtils Implementation
 */
 
@@ -137,3 +192,4 @@
 	2. Handle special cases
 	3. Return error string
 */
+

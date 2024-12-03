@@ -6,80 +6,75 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 13:04:01 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/04 19:09:18 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/11/29 23:05:58 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #ifndef SERVER_HPP
 #define SERVER_HPP
 
-#include <map>
-#include <set>
-#include <string>
-#include <cstdlib>
 #include "ServerConfig.hpp"
-#include "../http/HTTPRequest.hpp"
-#include "../http/Response.hpp"
+#include <map>
+#include <string>
+#include <sys/select.h>
+
+#define BUFFER_SIZE (128 * 1024)	// 128KB
 
 class Server {
-	public:
-		// Constructor and Destructor
-		explicit Server(int port, std::string host = "0.0.0.0");
-		~Server();
-
-		// Main server operations
-		void start();
-		void stop();
-
 	private:
-		// Server socket and configuration
+		struct ClientState {
+			std::string requestBuffer;
+			std::string responseBuffer;
+			std::vector<char> writeBuffer;
+			size_t writeBufferSize;
+
+			ClientState();
+		};
+
+		// Server configuration
+		const std::string _host;
+		const int _port;
 		int _serverSocket;
 		bool _isRunning;
-		int _port;
-		std::string _host;
+		const ServerConfig _config;
+		static const int IDLE_TIMEOUT = 300;	// 5 minutes in seconds
+		time_t _lastActivity;         // Track last activity timestamp
 
-		// File descriptor sets for select()
+		// Socket management
 		fd_set _masterSet;
 		fd_set _readSet;
 		fd_set _writeSet;
 		int _maxFd;
-
-		// Client state tracking
-		struct ClientState {
-			std::string requestBuffer;
-			std::string responseBuffer;
-			bool requestComplete;
-			bool headersSent;
-		};
 		std::map<int, ClientState> _clients;
 
-		// Socket setup methods
-		void initializeSocket();
+		// Socket initialization
+		bool initializeSocket();
 		void setNonBlocking(int sockfd);
 
-		// Connection handling methods
+		// Event loop
+		void runEventLoop();
+		void handleEvents(fd_set &readSet, fd_set &writeSet);
+		void handleReadEvent(int fd);
+
+		// Client handling
 		void handleNewConnection();
 		void handleClientData(int clientFd);
 		void handleClientWrite(int clientFd);
 		void closeConnection(int clientFd);
+		bool shouldCloseConnection(const ClientState &client) const;
 
-		// Request/Response methods
-		bool processRequest(int clientFd, ClientState &client);
-		void sendResponse(int clientFd, ClientState &client);
-		void sendErrorResponse(int clientFd, int statusCode, const std::string &message);
+		// Request processing
+		void processCompleteRequests(int clientFd, ClientState &client);
+		void processRequest(int clientFd, ClientState &client);
+		void sendBadRequestResponse(int clientFd);
 
-		// HTTP method handlers
-		void handleGET(const std::string &path,
-					   const std::map<std::string, std::string> &headers,
-					   Response &response);
-		void handlePOST(const std::string &path,
-						const std::map<std::string, std::string> &headers,
-						const std::string &body,
-						Response &response);
+	public:
+		explicit Server(const ServerConfig &config);
+		~Server();
 
-		// Helper methods
-		void updateMaxFd();
-		bool isRequestComplete(const std::string &request);
+		void start();
+		void stop();
+
 };
 
 #endif
