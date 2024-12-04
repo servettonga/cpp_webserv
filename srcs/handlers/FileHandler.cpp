@@ -16,7 +16,6 @@
 #include <sstream>
 #include <sys/stat.h>
 #include <unistd.h>
-#include <iostream>
 
 Response FileHandler::serveFile(const std::string &path, const std::string &urlPath) {
 	if (!isValidFilePath(path))
