@@ -6,13 +6,14 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/26 12:25:04 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/04 17:06:26 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/04 22:08:33 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "utils/ConfigParser.hpp"
 #include "server/ServerGroup.hpp"
 #include <iostream>
+#include <csignal>
 
 int main(const int argc, char *argv[]) {
 	try {
@@ -82,6 +83,8 @@ int main(const int argc, char *argv[]) {
 		ServerGroup serverGroup;
 		serverGroup.addServer(config);
 		serverGroup.addServer(config2);
+
+		signal(SIGPIPE, SIG_IGN);
 		serverGroup.start();
 	} catch (const std::exception &e) {
 		std::cerr << "Server error: " << e.what() << std::endl;

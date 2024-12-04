@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 13:04:01 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/04 15:53:10 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/04 22:20:08 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -40,7 +40,15 @@ bool Server::initializeSocket() {
 		return false;
 
 	int opt = 1;
-	setsockopt(_serverSocket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+	if (setsockopt(_serverSocket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
+		close(_serverSocket);
+		return false;
+	}
+	if (setsockopt(_serverSocket, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt)) < 0) {
+		close(_serverSocket);
+		return false;
+	}
+
 	setNonBlocking(_serverSocket);
 
 	sockaddr_in addr = {};
@@ -48,9 +56,14 @@ bool Server::initializeSocket() {
 	addr.sin_port = htons(_port);
 	addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
-	if (bind(_serverSocket, (sockaddr *) &addr, sizeof(addr)) < 0 ||
-		listen(_serverSocket, SOMAXCONN) < 0)
+	if (bind(_serverSocket, (sockaddr *) &addr, sizeof(addr)) < 0) {
+		close(_serverSocket);
 		return false;
+	}
+	if (listen(_serverSocket, SOMAXCONN) < 0) {
+		close(_serverSocket);
+		return false;
+	}
 
 	return true;
 }
@@ -80,7 +93,59 @@ void Server::processCompleteRequests(int clientFd, ClientState &client) {
 	if (headerEnd == std::string::npos)
 		return;
 
-	if (client.requestBuffer.find("POST") == 0) {
+	// Extract method and path early
+	size_t firstSpace = client.requestBuffer.find(" ");
+	if (firstSpace == std::string::npos) {
+		sendBadRequestResponse(clientFd);
+		client.requestBuffer.clear();
+		return;
+	}
+
+	std::string method = client.requestBuffer.substr(0, firstSpace);
+	size_t secondSpace = client.requestBuffer.find(" ", firstSpace + 1);
+	if (secondSpace == std::string::npos) {
+		sendBadRequestResponse(clientFd);
+		client.requestBuffer.clear();
+		return;
+	}
+
+	std::string path = client.requestBuffer.substr(firstSpace + 1,
+												   secondSpace - firstSpace - 1);
+
+	// Check method allowed early
+	const LocationConfig *location = _config.getLocation(
+			client.requestBuffer.substr(
+					client.requestBuffer.find(" ") + 1,
+					client.requestBuffer.find(" HTTP/") - client.requestBuffer.find(" ") - 1
+			)
+	);
+	if (location) {
+		bool methodAllowed = false;
+		for (std::vector<std::string>::const_iterator it = location->methods.begin();
+			 it != location->methods.end(); ++it) {
+			if (*it == method) {
+				methodAllowed = true;
+				break;
+			}
+		}
+		if (!methodAllowed) {
+			Response response(405);
+			response.addHeader("Content-Type", "text/html");
+			std::string allowed;
+			for (std::vector<std::string>::const_iterator it = location->methods.begin();
+				 it != location->methods.end(); ++it) {
+				if (!allowed.empty()) allowed += ", ";
+				allowed += *it;
+			}
+			response.addHeader("Allow", allowed);
+			response.setBody("<html><body><h1>405 Method Not Allowed</h1></body></html>");
+			client.responseBuffer = response.toString();
+			client.requestBuffer.clear();
+			return;
+		}
+	}
+
+	if (method == "POST") {
 		size_t clPos = client.requestBuffer.find("Content-Length: ");
 		if (clPos == std::string::npos || clPos > headerEnd) {
 			Response response(411, "Length Required");
@@ -99,14 +164,6 @@ void Server::processCompleteRequests(int clientFd, ClientState &client) {
 		size_t contentLength = std::atol(
 				client.requestBuffer.substr(clPos + 16, clEnd - (clPos + 16)).c_str()
 		);
-
-		// Get location and check the size limit before accepting body
-		const LocationConfig *location = _config.getLocation(
-				client.requestBuffer.substr(
-						client.requestBuffer.find(" ") + 1,
-						client.requestBuffer.find(" HTTP/") - client.requestBuffer.find(" ") - 1
-				)
-		);
 		if (location && contentLength > location->client_max_body_size) {
 			Response response = Response::makeErrorResponse(413);
 			client.responseBuffer = response.toString();
@@ -118,13 +175,15 @@ void Server::processCompleteRequests(int clientFd, ClientState &client) {
 			client.requestBuffer.clear();
 		}
 		return;
-	}
-
-	if (client.requestBuffer.find("GET") == 0 ||
-		client.requestBuffer.find("DELETE") == 0) {
+	} else if (method == "GET" || method == "DELETE") {
 		processRequest(clientFd, client);
 		client.requestBuffer.clear();
-		return;
+	} else {
+		Response response(501);
+		response.addHeader("Content-Type", "text/html");
+		response.setBody("<html><body><h1>501 Not Implemented</h1></body></html>");
+		client.responseBuffer = response.toString();
+		client.requestBuffer.clear();
 	}
 }
 

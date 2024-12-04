@@ -21,6 +21,8 @@ class ServerGroup {
 		static const int SELECT_TIMEOUT_SEC = 1;
 		static const int SELECT_TIMEOUT_USEC = 0;
 
+		static ServerGroup* instance;
+		static bool _shutdownRequested;
 		std::vector<Server*> _servers;
 		bool _isRunning;
 		fd_set _masterSet;
@@ -32,8 +34,10 @@ class ServerGroup {
 		void handleEvents(fd_set &readSet, fd_set &writeSet);
 
 		void initializeServers();
-		void cleanupServers();
 		bool handleSelect();
+
+		static void signalHandler(int signum);
+		void cleanup();
 
 	public:
 		ServerGroup();
@@ -42,6 +46,8 @@ class ServerGroup {
 		void addServer(const ServerConfig &config);
 		void start();
 		void stop();
+
+		void setupSignalHandlers();
 };
 
 #endif

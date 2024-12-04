@@ -16,6 +16,10 @@
 #include <sys/select.h>
 #include <cerrno>
 #include <cstring>
+#include <csignal>
+
+ServerGroup *ServerGroup::instance = NULL;
+bool ServerGroup::_shutdownRequested = false;
 
 ServerGroup::ServerGroup() : _isRunning(false), _maxFd(0) {
 	FD_ZERO(&_masterSet);
@@ -77,12 +81,20 @@ void ServerGroup::start() {
 		throw std::runtime_error("No servers configured");
 
 	_isRunning = true;
-	initializeServers();
+	_shutdownRequested = false;
+	setupSignalHandlers();
 
-	while (_isRunning && !_servers.empty()) {
-		if (!handleSelect())
-			continue;
+	try {
+		initializeServers();
+		while (_isRunning && !_shutdownRequested && !_servers.empty())
+			if (!handleSelect())
+				continue;
+	} catch (...) {
+		cleanup();
+		throw;
 	}
+
+	cleanup();
 }
 
 void ServerGroup::stop() {
@@ -134,12 +146,32 @@ void ServerGroup::initializeServers() {
 			FD_SET((*it)->getServerSocket(), &_masterSet);
 			updateMaxFd();
 		} catch (const std::exception& e) {
-			cleanupServers();
+			cleanup();
 			throw;
 		}
 	}
 }
 
-void ServerGroup::cleanupServers() {
+void ServerGroup::setupSignalHandlers() {
+	instance = this;
+
+	struct sigaction sa = {};
+	sa.sa_handler = ServerGroup::signalHandler;
+	sigemptyset(&sa.sa_mask);
+
+	if (sigaction(SIGINT, &sa, NULL) == -1 ||
+		sigaction(SIGTERM, &sa, NULL) == -1 ||
+		sigaction(SIGQUIT, &sa, NULL) == -1) {
+		throw std::runtime_error("Failed to set up signal handlers");
+	}
+}
+
+void ServerGroup::signalHandler(int signum) {
+	std::cout << "\nReceived signal " << signum << ", shutting down..." << std::endl;
+	_shutdownRequested = true;
+}
+
+void ServerGroup::cleanup() {
 	stop();
+	instance = NULL;
 }
