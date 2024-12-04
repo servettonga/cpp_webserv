@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   ConfigParser.hpp                                   :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
+/*   By: jdepka <jdepka@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/26 12:26:31 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/04 21:23:52 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/04 17:43:16 by jdepka           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -17,6 +17,13 @@
 #include <vector>
 #include <map>
 #include "../server/ServerConfig.hpp"
+#include <fstream>
+#include <sys/stat.h>
+#include <set>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <unistd.h>
+#include <sstream>
 
 class ConfigParser {
 	public:
@@ -29,10 +36,10 @@ class ConfigParser {
 		void reload();
 
 		// Validation methods
-		static bool validate() ;
-		static std::vector<std::string> getErrors() ;
+		bool validate() ;
+		std::vector<std::string> getErrors() ;
 
-	private:
+	public:
 		// File handling
 		std::string _configPath;
 		std::vector<std::string> _configLines;
@@ -56,19 +63,19 @@ class ConfigParser {
 		void parseDirective(const std::string &line, ServerConfig &server);
 
 		// Helper methods
-		static bool isBlockStart(const std::string &line) ;
-		static bool isBlockEnd(const std::string &line) ;
+		bool isBlockStart(const std::string &line) ;
+		bool isBlockEnd(const std::string &line) ;
 		std::pair<std::string, std::string> splitDirective(const std::string &line);
-		void skipWhitespace();
-		static bool hasMoreLines() ;
+		void skipWhiteSpace();
+		bool hasMoreLines() ;
 		std::string getCurrentLine();
 		void addError(const std::string &error);
 
 		// Validation methods
-		static bool validatePaths(const ServerConfig &config) ;
-		static bool validatePorts(const ServerConfig &config) ;
-		static bool validateCGI(const ServerConfig &config) ;
-		static bool validateLocations(const ServerConfig &config) ;
+		bool validatePaths(const ServerConfig &config) ;
+		bool validatePorts(const ServerConfig &config) ;
+		bool validateCGI(const ServerConfig &config) ;
+		bool validateLocations(const ServerConfig &config) ;
 };
 
 #endif
