@@ -6,7 +6,7 @@
 /*   By: jdepka <jdepka@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 13:04:01 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/05 12:50:01 by jdepka           ###   ########.fr       */
+/*   Updated: 2024/12/05 12:55:25 by jdepka           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -129,8 +129,9 @@ bool ConfigParser::validate() {
 	*/
     _errors.clear();
 
+    std::vector<ServerConfig> serverConfigs = parse();
     bool isValid = true;
-    for (std::vector<ServerConfig>::iterator it = parse().begin(); it != parse().end(); ++it) {
+    for (std::vector<ServerConfig>::iterator it = serverConfigs.begin(); it != serverConfigs.end(); ++it) {
         if (!validatePaths(*it)) {
             addError("Path validation failed for server");
             isValid = false;
