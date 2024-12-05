@@ -6,7 +6,7 @@
 /*   By: jdepka <jdepka@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/26 12:26:31 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/05 12:17:54 by jdepka           ###   ########.fr       */
+/*   Updated: 2024/12/05 12:43:36 by jdepka           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -24,6 +24,7 @@
 #include <netinet/in.h>
 #include <unistd.h>
 #include <sstream>
+#include "Utils.hpp"
 
 class ConfigParser {
 	public:

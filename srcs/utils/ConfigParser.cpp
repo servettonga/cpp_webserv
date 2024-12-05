@@ -6,7 +6,7 @@
 /*   By: jdepka <jdepka@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 13:04:01 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/05 12:39:53 by jdepka           ###   ########.fr       */
+/*   Updated: 2024/12/05 12:45:58 by jdepka           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -64,19 +64,19 @@ std::vector<ServerConfig> ConfigParser::parse() {
 	}
 
 	for (size_t i = 0; i < serverConfigs.size(); ++i) {
-		if (!validatePaths(serverConfigs[i])) {
-			addError("Invalid paths in server block " + std::to_string(i + 1));
-		}
-		if (!validatePorts(serverConfigs[i])) {
-			addError("Invalid ports in server block " + std::to_string(i + 1));
-		}
-		if (!validateCGI(serverConfigs[i])) {
-			addError("Invalid CGI configuration in server block " + std::to_string(i + 1));
-		}
-		if (!validateLocations(serverConfigs[i])) {
-			addError("Invalid location settings in server block " + std::to_string(i + 1));
-		}
-	}
+        if (!validatePaths(serverConfigs[i])) {
+            addError("Invalid paths in server block " + Utils::StringUtils::numToString(i + 1));
+        }
+        if (!validatePorts(serverConfigs[i])) {
+            addError("Invalid ports in server block " + Utils::StringUtils::numToString(i + 1));
+        }
+        if (!validateCGI(serverConfigs[i])) {
+            addError("Invalid CGI configuration in server block " + Utils::StringUtils::numToString(i + 1));
+        }
+        if (!validateLocations(serverConfigs[i])) {
+            addError("Invalid location settings in server block " + Utils::StringUtils::numToString(i + 1));
+        }
+    }
 
 	return serverConfigs;
 }
@@ -170,7 +170,7 @@ std::vector<std::string> ConfigParser::getErrors() {
         std::string errorMessage = *it;
 
         if (_currentLine < _configLines.size()) {
-            errorMessage = "Line " + std::to_string(_currentLine + 1) + ": " + errorMessage;
+            errorMessage = "Line " + Utils::StringUtils::numToString(_currentLine + 1) + ": " + errorMessage;
         }
 
         formattedErrors.push_back(errorMessage);
@@ -340,7 +340,7 @@ void ConfigParser::parseLocation(LocationConfig &location) {
     trimWhitespace(line);
 
     if (line.empty() || line[0] != '/') {
-        addError("Invalid location path at line: " + std::to_string(_currentLine));
+        addError("Invalid location path at line: " + Utils::StringUtils::numToString(_currentLine));
         return;
     }
     location.path = line;
@@ -362,7 +362,7 @@ void ConfigParser::parseLocation(LocationConfig &location) {
             if (!root.empty()) {
                 location.root = root;
             } else {
-                addError("Invalid root directory at line: " + std::to_string(_currentLine));
+                addError("Invalid root directory at line: " + Utils::StringUtils::numToString(_currentLine));
             }
         }
         else if (line.find("index") == 0) {
@@ -371,7 +371,7 @@ void ConfigParser::parseLocation(LocationConfig &location) {
             if (!index.empty()) {
                 location.index = index;
             } else {
-                addError("Invalid index file at line: " + std::to_string(_currentLine));
+                addError("Invalid index file at line: " + Utils::StringUtils::numToString(_currentLine));
             }
         }
         else if (line.find("methods") == 0) {
@@ -384,7 +384,7 @@ void ConfigParser::parseLocation(LocationConfig &location) {
                     location.methods.push_back(method);
                 }
             } else {
-                addError("Invalid methods at line: " + std::to_string(_currentLine));
+                addError("Invalid methods at line: " + Utils::StringUtils::numToString(_currentLine));
             }
         }
         else if (line.find("cgi") == 0) {
@@ -393,7 +393,7 @@ void ConfigParser::parseLocation(LocationConfig &location) {
             if (!cgi.empty()) {
                 location.cgi_path = cgi;
             } else {
-                addError("Invalid CGI configuration at line: " + std::to_string(_currentLine));
+                addError("Invalid CGI configuration at line: " + Utils::StringUtils::numToString(_currentLine));
             }
         }
         else if (line.find("autoindex") == 0) {
@@ -404,7 +404,7 @@ void ConfigParser::parseLocation(LocationConfig &location) {
             } else if (autoindex == "off") {
                 location.autoindex = false;
             } else {
-                addError("Invalid autoindex value at line: " + std::to_string(_currentLine));
+                addError("Invalid autoindex value at line: " + Utils::StringUtils::numToString(_currentLine));
             }
         }
         else if (line.find("client_max_body_size") == 0) {
@@ -413,11 +413,11 @@ void ConfigParser::parseLocation(LocationConfig &location) {
             try {
                 location.client_max_body_size = std::stoul(size);
             } catch (const std::invalid_argument&) {
-                addError("Invalid client_max_body_size at line: " + std::to_string(_currentLine));
+                addError("Invalid client_max_body_size at line: " + Utils::StringUtils::numToString(_currentLine));
             }
         } 
         else {
-            addError("Unknown directive in location block at line: " + std::to_string(_currentLine));
+            addError("Unknown directive in location block at line: " + Utils::StringUtils::numToString(_currentLine));
         }
 
         ++_currentLine;
@@ -468,7 +468,7 @@ void ConfigParser::parseCGI(ServerConfig &server) {
             if (!ext.empty()) {
                 server.cgi_handlers[ext] = line;
             } else {
-                addError("Invalid CGI extension configuration at line: " + std::to_string(_currentLine));
+                addError("Invalid CGI extension configuration at line: " + Utils::StringUtils::numToString(_currentLine));
             }
         } 
         else if (line.find("cgi_path") == 0) {
@@ -477,7 +477,7 @@ void ConfigParser::parseCGI(ServerConfig &server) {
             if (!path.empty()) {
                 server.cgi_handlers["path"] = path;
             } else {
-                addError("Invalid CGI path configuration at line: " + std::to_string(_currentLine));
+                addError("Invalid CGI path configuration at line: " + Utils::StringUtils::numToString(_currentLine));
             }
         }
         else if (line.find("timeout") == 0) {
@@ -487,11 +487,11 @@ void ConfigParser::parseCGI(ServerConfig &server) {
             if (timeout > 0) {
                 server.client_timeout = timeout;
             } else {
-                addError("Invalid timeout value at line: " + std::to_string(_currentLine));
+                addError("Invalid timeout value at line: " + Utils::StringUtils::numToString(_currentLine));
             }
         }
         else {
-            addError("Unknown CGI directive at line: " + std::to_string(_currentLine));
+            addError("Unknown CGI directive at line: " + Utils::StringUtils::numToString(_currentLine));
         }
 
         ++_currentLine;
@@ -812,13 +812,13 @@ void ConfigParser::addError(const std::string &error) {
 	std::string formattedError;
     
     if (_currentLine > 0) {
-        formattedError = "Line " + std::to_string(_currentLine) + ": ";
+        formattedError = "Line " + Utils::StringUtils::numToString(_currentLine) + ": ";
     }
     
     formattedError += error;
     
     if (_state != MAIN) {
-        formattedError += " [Context: " + std::to_string(_state) + "]";
+        formattedError += " [Context: " + Utils::StringUtils::numToString(_state) + "]";
     }
 
     _errors.push_back(formattedError);
@@ -879,12 +879,12 @@ bool ConfigParser::validatePorts(const ServerConfig &config) {
 	std::set<int> portSet;
 
     if (config.port < 1 || config.port > 65535) {
-        addError("Port number out of range: " + std::to_string(config.port));
+        addError("Port number out of range: " + Utils::StringUtils::numToString(config.port));
         return false;
     }
 
     if (!portSet.insert(config.port).second) {
-        addError("Duplicate port found: " + std::to_string(config.port));
+        addError("Duplicate port found: " + Utils::StringUtils::numToString(config.port));
         return false;
     }
 
@@ -901,7 +901,7 @@ bool ConfigParser::validatePorts(const ServerConfig &config) {
 
     if (bind(sockfd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
         close(sockfd);
-        addError("Port " + std::to_string(config.port) + " is already in use.");
+        addError("Port " + Utils::StringUtils::numToString(config.port) + " is already in use.");
         return false;
     }
 
