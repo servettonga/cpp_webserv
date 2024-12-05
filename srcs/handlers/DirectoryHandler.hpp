@@ -28,8 +28,6 @@ class DirectoryHandler {
 	private:
 		static std::string createListingHeader(const std::string& urlPath);
 		static std::string createDeleteScript();
-		static std::string getFileSize(const struct stat& st);
-		static std::string getModificationTime(const struct stat& st);
 
 		static std::string formatFileSize(const struct stat &st);
 

@@ -18,7 +18,6 @@
 #include <cstring>
 #include <csignal>
 
-ServerGroup *ServerGroup::instance = NULL;
 bool ServerGroup::_shutdownRequested = false;
 
 ServerGroup::ServerGroup() : _isRunning(false), _maxFd(0) {
@@ -153,8 +152,6 @@ void ServerGroup::initializeServers() {
 }
 
 void ServerGroup::setupSignalHandlers() {
-	instance = this;
-
 	struct sigaction sa = {};
 	sa.sa_handler = ServerGroup::signalHandler;
 	sigemptyset(&sa.sa_mask);
@@ -173,5 +170,4 @@ void ServerGroup::signalHandler(int signum) {
 
 void ServerGroup::cleanup() {
 	stop();
-	instance = NULL;
 }

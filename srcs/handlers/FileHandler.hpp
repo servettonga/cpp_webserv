@@ -29,7 +29,6 @@ class FileHandler {
 
 		static bool isValidFilePath(const std::string &path);
 		static std::string extractBoundary(const std::string &contentType);
-		static std::string findFileContent(const std::string &body, const std::string &boundary, std::string &filename);
 
 		static FileData parseMultipartData(const std::string &body, const std::string &boundary);
 		static std::string constructUploadPath(const LocationConfig &loc, const std::string &filename);
@@ -44,6 +43,7 @@ class FileHandler {
 		static std::string sanitizeFilename(const std::string &filename);
 		static bool validatePath(const std::string &path);
 		static std::string urlDecode(const std::string &encoded);
+		static std::string getType(const std::string &path);
 };
 
 #endif

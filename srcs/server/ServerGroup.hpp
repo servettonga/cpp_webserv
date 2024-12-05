@@ -21,7 +21,6 @@ class ServerGroup {
 		static const int SELECT_TIMEOUT_SEC = 1;
 		static const int SELECT_TIMEOUT_USEC = 0;
 
-		static ServerGroup* instance;
 		static bool _shutdownRequested;
 		std::vector<Server*> _servers;
 		bool _isRunning;

@@ -64,11 +64,21 @@ test_virtual_host "$PORTFOLIO_SERVER/" "portfolio.localhost" "200" "Portfolio vi
 
 # Test uploads on main server
 echo -e "\nTesting uploads on main server..."
-RESPONSE=$(curl -s -X POST -F "file=@$SMALL_FILE" "$MAIN_SERVER$UPLOAD_PATH")
-test_result $? "Small file upload" "$RESPONSE"
+for file in "$SMALL_FILE" "$MEDIUM_FILE"; do
+    echo "Attempting to upload $file..."
+    RESPONSE=$(curl -s -X POST -F "file=@$file" "$MAIN_SERVER$UPLOAD_PATH")
+    test_result $? "Upload of $file" "$RESPONSE"
 
-RESPONSE=$(curl -s -X POST -F "file=@$MEDIUM_FILE" "$MAIN_SERVER$UPLOAD_PATH")
-test_result $? "Medium file upload" "$RESPONSE"
+    # Verify upload
+    echo "Verifying upload of $file..."
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$MAIN_SERVER$UPLOAD_PATH/$file")
+    if [ "$HTTP_CODE" = "200" ]; then
+        test_result 0 "Verified upload of $file"
+    else
+        test_result 1 "File $file not uploaded" "HTTP $HTTP_CODE"
+    fi
+    sleep 1
+done
 
 # Test large file rejection
 echo -e "\nTesting large file rejection..."
@@ -81,17 +91,21 @@ fi
 
 # Test DELETE on main server
 echo -e "\nTesting DELETE requests on main server..."
+echo -e "\nTesting DELETE requests on main server..."
 for file in "$SMALL_FILE" "$MEDIUM_FILE"; do
-    RESPONSE=$(curl -s -X DELETE "$MAIN_SERVER$UPLOAD_PATH/$file")
+    echo "Attempting to delete $file..."
+    RESPONSE=$(curl -s --max-time 5 -X DELETE "$MAIN_SERVER$UPLOAD_PATH/$file")
     test_result $? "DELETE request for $file" "$RESPONSE"
 
-    # Verify deletion
-    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$MAIN_SERVER$UPLOAD_PATH/$file")
+    # Verify deletion with timeout
+    echo "Verifying deletion of $file..."
+    HTTP_CODE=$(curl -s --max-time 5 -o /dev/null -w "%{http_code}" "$MAIN_SERVER$UPLOAD_PATH/$file")
     if [ "$HTTP_CODE" = "404" ]; then
         test_result 0 "Verified deletion of $file"
     else
         test_result 1 "File $file still exists" "HTTP $HTTP_CODE"
     fi
+    sleep 1
 done
 
 # Test method restrictions on portfolio server

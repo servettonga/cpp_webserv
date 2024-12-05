@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 13:04:01 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/04 12:59:33 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/05 12:03:39 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -76,6 +76,10 @@ class Server {
 		void processCompleteRequests(int clientFd, ClientState &client);
 		void processRequest(int clientFd, ClientState &client);
 		void sendBadRequestResponse(int clientFd);
+		void handlePostRequest(int clientFd, ClientState &client, size_t headerEnd);
+		bool validateMethod(const std::string &method, const LocationConfig *location, ClientState &client);
+		bool validateContentLength(const std::string &requestBuffer, size_t headerEnd, const LocationConfig *location,
+								   ClientState &client);
 };
 
 #endif
