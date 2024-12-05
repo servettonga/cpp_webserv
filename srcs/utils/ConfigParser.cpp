@@ -6,7 +6,7 @@
 /*   By: jdepka <jdepka@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 13:04:01 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/04 17:20:14 by jdepka           ###   ########.fr       */
+/*   Updated: 2024/12/05 12:39:53 by jdepka           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -639,7 +639,7 @@ bool ConfigParser::isBlockStart(const std::string &line) {
         return false;
     }
 
-    return trimmedLine.front() == '{';
+    return trimmedLine[0] == '{';
 }
 
 bool ConfigParser::isBlockEnd(const std::string &line) {
@@ -660,7 +660,7 @@ bool ConfigParser::isBlockEnd(const std::string &line) {
         return false;
     }
 
-    return trimmedLine.back() == '}';
+    return trimmedLine[trimmedLine.size() - 1] == '}';
 }
 
 std::pair<std::string, std::string> ConfigParser::splitDirective(const std::string &line) {
