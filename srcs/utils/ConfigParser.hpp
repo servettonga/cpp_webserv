@@ -6,7 +6,7 @@
 /*   By: jdepka <jdepka@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/26 12:26:31 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/04 17:43:16 by jdepka           ###   ########.fr       */
+/*   Updated: 2024/12/05 12:17:54 by jdepka           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -39,7 +39,7 @@ class ConfigParser {
 		bool validate() ;
 		std::vector<std::string> getErrors() ;
 
-	public:
+	private:
 		// File handling
 		std::string _configPath;
 		std::vector<std::string> _configLines;
