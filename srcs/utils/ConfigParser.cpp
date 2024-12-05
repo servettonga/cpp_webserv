@@ -6,7 +6,7 @@
 /*   By: jdepka <jdepka@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 13:04:01 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/05 12:45:58 by jdepka           ###   ########.fr       */
+/*   Updated: 2024/12/05 12:50:01 by jdepka           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -840,26 +840,26 @@ bool ConfigParser::validatePaths(const ServerConfig &config) {
         return false;
     }
 
-    for (const auto& errorPage : config.error_pages) {
+    for (std::map<int, std::string>::const_iterator it = config.error_pages.begin(); it != config.error_pages.end(); ++it) {
         struct stat errorStat;
-        if (stat(errorPage.second.c_str(), &errorStat) != 0 || !S_ISREG(errorStat.st_mode)) {
-            addError("Error page file does not exist or is not a regular file: " + errorPage.second);
+        if (stat(it->second.c_str(), &errorStat) != 0 || !S_ISREG(errorStat.st_mode)) {
+            addError("Error page file does not exist or is not a regular file: " + it->second);
             return false;
         }
     }
 
-    for (const auto& handler : config.cgi_handlers) {
+    for (std::map<std::string, std::string>::const_iterator it = config.cgi_handlers.begin(); it != config.cgi_handlers.end(); ++it) {
         struct stat cgiStat;
-        if (stat(handler.second.c_str(), &cgiStat) != 0 || !S_ISREG(cgiStat.st_mode)) {
-            addError("CGI handler does not exist or is not a regular file: " + handler.second);
+        if (stat(it->second.c_str(), &cgiStat) != 0 || !S_ISREG(cgiStat.st_mode)) {
+            addError("CGI handler does not exist or is not a regular file: " + it->second);
             return false;
         }
     }
 
-    for (const auto& location : config.locations) {
+    for (std::vector<LocationConfig>::const_iterator it = config.locations.begin(); it != config.locations.end(); ++it) {
         struct stat locationStat;
-        if (stat(location.root.c_str(), &locationStat) != 0 || !S_ISDIR(locationStat.st_mode)) {
-            addError("Location root directory does not exist or is not a directory: " + location.root);
+        if (stat(it->root.c_str(), &locationStat) != 0 || !S_ISDIR(locationStat.st_mode)) {
+            addError("Location root directory does not exist or is not a directory: " + it->root);
             return false;
         }
     }
