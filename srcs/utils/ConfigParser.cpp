@@ -6,7 +6,7 @@
 /*   By: jdepka <jdepka@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 13:04:01 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/05 12:55:25 by jdepka           ###   ########.fr       */
+/*   Updated: 2024/12/05 13:11:42 by jdepka           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -920,8 +920,8 @@ bool ConfigParser::validateCGI(const ServerConfig &config) {
 		4. Return validation result
 	*/
 
-    for (const auto& handler : config.cgi_handlers) {
-        const std::string& path = handler.second;
+    for (std::map<std::string, std::string>::const_iterator it = config.cgi_handlers.begin(); it != config.cgi_handlers.end(); ++it) {
+        const std::string& path = it->second;
 
         struct stat info;
         if (stat(path.c_str(), &info) != 0) {
@@ -935,8 +935,8 @@ bool ConfigParser::validateCGI(const ServerConfig &config) {
         }
     }
 
-    for (const auto& handler : config.cgi_handlers) {
-        const std::string& extension = handler.first;
+    for (std::map<std::string, std::string>::const_iterator it = config.cgi_handlers.begin(); it != config.cgi_handlers.end(); ++it) {
+        const std::string& extension = it->first;
 
         if (extension.empty() || extension[0] != '.') {
             addError("Invalid CGI extension format: " + extension);
@@ -944,8 +944,8 @@ bool ConfigParser::validateCGI(const ServerConfig &config) {
         }
     }
 
-    for (const auto& handler : config.cgi_handlers) {
-        const std::string& path = handler.second;
+    for (std::map<std::string, std::string>::const_iterator it = config.cgi_handlers.begin(); it != config.cgi_handlers.end(); ++it) {
+        const std::string& path = it->second;
 
         struct stat info;
         if (stat(path.c_str(), &info) != 0) {
@@ -953,7 +953,6 @@ bool ConfigParser::validateCGI(const ServerConfig &config) {
             return false;
         }
 
-        // Check if the CGI file is executable
         if (!(info.st_mode & S_IXUSR)) {
             addError("CGI handler is not executable: " + path);
             return false;
