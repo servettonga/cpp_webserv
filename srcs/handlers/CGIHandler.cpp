@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   CGIHandler.cpp                                     :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
+/*   By: jdepka <jdepka@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/11/02 19:53:07 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/06 18:35:07 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/05 13:06:54 by jdepka           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -18,6 +18,15 @@ CGIHandler::CGIHandler() {
 		1. Initialize empty environment map
 		2. Set default working directory
 	*/
+
+	_envMap.clear();
+
+    char *cwd = std::getenv("PWD");
+    if (cwd) {
+        _workingDir = cwd;
+    } else {
+        _workingDir = ".";
+    }
 }
 
 CGIHandler::~CGIHandler() {
@@ -45,9 +54,60 @@ Response CGIHandler::executeCGI(const HTTPRequest &request, const std::string &s
 		5. Parse CGI output
 		6. Return response
 	*/
-	(void)request;
-	(void)scriptPath;
-	return Response();
+
+    std::string script = scriptPath;
+    std::string workingDir = "/var/www";
+
+    char **env = createEnvArray();
+    setupEnvironment(request);
+
+    int inputPipe[2];
+    int outputPipe[2];
+
+    if (pipe(inputPipe) < 0 || pipe(outputPipe) < 0) {
+        std::cerr << "Error creating pipes!" << std::endl;
+        return Response::makeErrorResponse(500);
+    }
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        std::cerr << "Error forking process!" << std::endl;
+        return Response::makeErrorResponse(500);
+    }
+
+    if (pid == 0) {
+        close(inputPipe[1]);
+        close(outputPipe[0]);
+
+        if (dup2(inputPipe[0], STDIN_FILENO) < 0 || dup2(outputPipe[1], STDOUT_FILENO) < 0 || dup2(outputPipe[1], STDERR_FILENO) < 0) {
+            std::cerr << "Error redirecting file descriptors!" << std::endl;
+            exit(1);
+        }
+
+        if (chdir(workingDir.c_str()) < 0) {
+            std::cerr << "Error changing working directory!" << std::endl;
+            exit(1);
+        }
+
+        if (execve(script.c_str(), NULL, env) < 0) {
+            std::cerr << "Error executing CGI script!" << std::endl;
+            exit(1);
+        }
+    } else {
+        close(inputPipe[0]);
+        writeToPipe(inputPipe[1], request.getBody());
+
+        close(outputPipe[1]);
+        std::string output = readFromPipe(outputPipe[0]);
+
+        int status;
+        waitpid(pid, &status, 0);
+
+        Response response = Response::makeErrorResponse(200);
+        parseOutput(output, response);
+
+        return response;
+    }
 }
 
 void CGIHandler::setupEnvironment(const HTTPRequest &request) {
@@ -65,7 +125,45 @@ void CGIHandler::setupEnvironment(const HTTPRequest &request) {
 		   - CONTENT_LENGTH
 		3. Set HTTP_ variables from headers
 	*/
-	(void)request;
+	
+    _envMap["GATEWAY_INTERFACE"] = "CGI/1.1";
+    _envMap["SERVER_PROTOCOL"] = "HTTP/1.1";
+
+    _envMap["REQUEST_METHOD"] = request.getMethod();
+
+    _envMap["SCRIPT_FILENAME"] = request.getPath();
+
+    _envMap["PATH_INFO"] = request.getPath();
+
+    std::string query = request.getPath();
+    size_t pos = query.find("?");
+    if (pos != std::string::npos) {
+        _envMap["QUERY_STRING"] = query.substr(pos + 1);
+    } else {
+        _envMap["QUERY_STRING"] = "";
+    }
+
+    if (request.hasHeader("Content-Type")) {
+        _envMap["CONTENT_TYPE"] = request.getHeader("Content-Type");
+    } else {
+        _envMap["CONTENT_TYPE"] = "application/x-www-form-urlencoded";
+    }
+
+    if (request.hasHeader("Content-Length")) {
+        _envMap["CONTENT_LENGTH"] = request.getHeader("Content-Length");
+    } else {
+        _envMap["CONTENT_LENGTH"] = "0";
+    }
+
+    for (std::map<std::string, std::string>::const_iterator it = request.getHeaders().begin(); it != request.getHeaders().end(); ++it) {
+        std::string headerName = it->first;
+        if (headerName.substr(0, 5) == "HTTP_") {
+            _envMap[headerName] = it->second;
+        } else {
+            std::string envName = "HTTP_" + headerName;
+            _envMap[envName] = it->second;
+        }
+    }
 }
 
 char **CGIHandler::createEnvArray() {
@@ -76,7 +174,24 @@ char **CGIHandler::createEnvArray() {
 		3. Add NULL terminator
 		4. Return array
 	*/
-	return NULL;
+	
+    size_t envSize = _envMap.size() + 1;
+
+    char **envArray = new char*[envSize];
+    
+    size_t i = 0;
+    for (std::map<std::string, std::string>::const_iterator it = _envMap.begin(); it != _envMap.end(); ++it) {
+        std::string envVar = it->first + "=" + it->second;
+        
+        envArray[i] = new char[envVar.length() + 1];
+        
+        std::strcpy(envArray[i], envVar.c_str());
+        ++i;
+    }
+
+    envArray[i] = NULL;
+
+    return envArray;
 }
 
 void CGIHandler::freeEnvArray(char **env) {
@@ -85,7 +200,16 @@ void CGIHandler::freeEnvArray(char **env) {
 		1. Free each string in array
 		2. Free array itself
 	*/
-	(void)env;
+	
+	if (env == NULL) {
+        return;
+    }
+
+    for (int i = 0; env[i] != NULL; ++i) {
+        delete[] env[i];
+    }
+
+    delete[] env;
 }
 
 std::string CGIHandler::unchunkData(const std::string &chunkedData) {
@@ -98,8 +222,38 @@ std::string CGIHandler::unchunkData(const std::string &chunkedData) {
 		   - Append to result
 		3. Return unchunked data
 	*/
-	(void)chunkedData;
-	return std::string();
+	
+	std::string result;
+    size_t pos = 0;
+    size_t chunkSize = 0;
+    size_t chunkDataStart = 0;
+
+    while (pos < chunkedData.size()) {
+        size_t endOfSizeLine = chunkedData.find("\r\n", pos);
+        if (endOfSizeLine == std::string::npos) {
+            break;
+        }
+
+        std::string chunkSizeStr = chunkedData.substr(pos, endOfSizeLine - pos);
+        chunkSize = strtol(chunkSizeStr.c_str(), NULL, 16);
+
+        if (chunkSize == 0) {
+            break;
+        }
+
+        pos = endOfSizeLine + 2;
+		
+        size_t chunkEnd = pos + chunkSize;
+        if (chunkEnd > chunkedData.size()) {
+            break;
+        }
+
+        result.append(chunkedData.substr(pos, chunkSize));
+
+        pos = chunkEnd + 2;
+    }
+
+    return result;
 }
 
 std::string CGIHandler::readFromPipe(int fd) {
@@ -111,8 +265,20 @@ std::string CGIHandler::readFromPipe(int fd) {
 		   - Append to result
 		3. Return complete output
 	*/
-	(void)fd;
-	return std::string();
+	
+	char buffer[4096];
+    std::string result;
+    ssize_t bytesRead;
+
+    while ((bytesRead = read(fd, buffer, sizeof(buffer))) > 0) {
+        result.append(buffer, bytesRead);
+    }
+
+    if (bytesRead < 0) {
+        std::cerr << "Error reading from pipe: " << strerror(errno) << std::endl;
+    }
+
+    return result;
 }
 
 void CGIHandler::writeToPipe(int fd, const std::string &data) {
@@ -124,8 +290,24 @@ void CGIHandler::writeToPipe(int fd, const std::string &data) {
 		   - Handle partial writes
 		   - Handle interrupts
 	*/
-	(void)fd;
-	(void)data;
+	
+	size_t dataSize = data.size();
+    size_t written = 0;
+    
+    while (written < dataSize) {
+        ssize_t bytesWritten = write(fd, data.c_str() + written, dataSize - written);
+        
+        if (bytesWritten < 0) {
+            if (errno == EINTR) {
+                continue;
+            } else {
+                std::cerr << "Error writing to pipe: " << strerror(errno) << std::endl;
+                break;
+            }
+        }
+        
+        written += bytesWritten;
+    }
 }
 
 void CGIHandler::parseOutput(const std::string &output, Response &response) {
@@ -137,6 +319,40 @@ void CGIHandler::parseOutput(const std::string &output, Response &response) {
 		4. Set response body
 		5. Handle special headers
 	*/
-	(void)output;
-	(void)response;
+	
+	size_t pos = output.find("\r\n\r\n");
+    if (pos == std::string::npos) {
+        return;
+    }
+
+    std::string headersStr = output.substr(0, pos);
+    std::string body = output.substr(pos + 4);
+
+    size_t statusLineEnd = headersStr.find("\r\n");
+    if (statusLineEnd != std::string::npos) {
+        std::string statusLine = headersStr.substr(0, statusLineEnd);
+        size_t statusCodePos = statusLine.find(" ");
+        if (statusCodePos != std::string::npos) {
+            int statusCode = atoi(statusLine.substr(statusCodePos + 1, 3).c_str());
+            response.setStatusCode(statusCode);
+        }
+    }
+
+    size_t headerPos = 0;
+    while ((headerPos = headersStr.find("\r\n", headerPos)) != std::string::npos) {
+        size_t headerEnd = headersStr.find("\r\n", headerPos + 2);
+        if (headerEnd == std::string::npos) break;
+        std::string header = headersStr.substr(headerPos + 2, headerEnd - headerPos - 2);
+        
+        size_t delimiterPos = header.find(": ");
+        if (delimiterPos != std::string::npos) {
+            std::string headerName = header.substr(0, delimiterPos);
+            std::string headerValue = header.substr(delimiterPos + 2);
+            response.addHeader(headerName, headerValue);
+        }
+
+        headerPos = headerEnd;
+    }
+
+    response.setBody(body);
 }
