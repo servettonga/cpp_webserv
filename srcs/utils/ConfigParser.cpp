@@ -6,7 +6,7 @@
 /*   By: jdepka <jdepka@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 13:04:01 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/07 18:48:03 by jdepka           ###   ########.fr       */
+/*   Updated: 2024/12/07 18:56:23 by jdepka           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -485,8 +485,9 @@ void ConfigParser::parseCGI(ServerConfig &server) {
         else if (line.find("timeout") == 0) {
             std::string timeoutStr = line.substr(8);
             trimWhitespace(timeoutStr);
-            unsigned long timeout = std::stoul(timeoutStr);
-            if (timeout > 0) {
+            char *endPtr;
+            unsigned long timeout = std::strtoul(timeoutStr.c_str(), &endPtr, 10);
+            if (*endPtr == '\0' && timeout > 0) {
                 server.client_timeout = timeout;
             } else {
                 addError("Invalid timeout value at line: " + Utils::StringUtils::numToString(_currentLine));
@@ -603,16 +604,18 @@ void ConfigParser::parseDirective(const std::string &line, ServerConfig &server)
         }
     }
     else if (directive.first == "client_max_body_size") {
-        unsigned long size = std::stoul(directive.second);
-        if (size == 0) {
+        char *endPtr;
+        unsigned long size = std::strtoul(directive.second.c_str(), &endPtr, 10);
+        if (*endPtr != '\0' || size == 0) {
             addError("Invalid client_max_body_size value");
         } else {
             server.client_max_body_size = size;
         }
     }
     else if (directive.first == "timeout") {
-        unsigned int timeout = std::stoi(directive.second);
-        if (timeout == 0) {
+        char *endPtr;
+        unsigned long timeout = std::strtoul(directive.second.c_str(), &endPtr, 10);
+        if (*endPtr != '\0' || timeout == 0) {
             addError("Invalid timeout value");
         } else {
             server.client_timeout = timeout;
