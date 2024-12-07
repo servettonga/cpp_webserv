@@ -6,7 +6,7 @@
 /*   By: jdepka <jdepka@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 13:04:01 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/07 18:38:52 by jdepka           ###   ########.fr       */
+/*   Updated: 2024/12/07 18:48:03 by jdepka           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -428,7 +428,8 @@ void ConfigParser::parseLocation(LocationConfig &location) {
         addError("Invalid location path: " + location.path);
     }
 
-    for (const std::string &method : location.methods) {
+    for (std::vector<std::string>::const_iterator it = location.methods.begin(); it != location.methods.end(); ++it) {
+        const std::string &method = *it;
         if (method != "GET" && method != "POST" && method != "PUT" && method != "DELETE") {
             addError("Invalid HTTP method: " + method + " in location path: " + location.path);
         }
@@ -983,8 +984,10 @@ bool ConfigParser::validateLocations(const ServerConfig &config) {
         }
     }
 
-    for (const LocationConfig &location : config.locations) {
-        for (const std::string &method : location.methods) {
+    for (std::vector<LocationConfig>::const_iterator locIt = config.locations.begin(); locIt != config.locations.end(); ++locIt) {
+        const LocationConfig &location = *locIt;
+        for (std::vector<std::string>::const_iterator methodIt = location.methods.begin(); methodIt != location.methods.end(); ++methodIt) {
+            const std::string &method = *methodIt;
             if (method != "GET" && method != "POST" && method != "PUT" && method != "DELETE" && method != "PATCH" && method != "HEAD") {
                 addError("Invalid HTTP method in location " + location.path + ": " + method);
                 return false;
@@ -992,7 +995,8 @@ bool ConfigParser::validateLocations(const ServerConfig &config) {
         }
     }
 
-    for (const LocationConfig &location : config.locations) {
+    for (std::vector<LocationConfig>::const_iterator locIt = config.locations.begin(); locIt != config.locations.end(); ++locIt) {
+        const LocationConfig &location = *locIt;
         struct stat info;
         if (stat(location.root.c_str(), &info) != 0) {
             addError("Directory not found or accessible for location " + location.path + ": " + location.root);
