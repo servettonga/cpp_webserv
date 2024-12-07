@@ -21,7 +21,6 @@ RequestHandler::RequestHandler(const ServerConfig &config) : _config(config) {}
 Response RequestHandler::handleRequest(const HTTPRequest &request) {
 	const LocationConfig *location = getLocation(request.getPath());
 	if (!location) {
-		// Get the error page path from config
 		std::map<int, std::string>::const_iterator it = _config.error_pages.find(404);
 		if (it != _config.error_pages.end()) {
 			std::string fullPath = _config.root + it->second;
@@ -57,45 +56,22 @@ Response RequestHandler::handleRequest(const HTTPRequest &request) {
 }
 
 const LocationConfig* RequestHandler::getLocation(const std::string &uri) const {
-	const LocationConfig* bestMatch = NULL;
+	const LocationConfig *bestMatch = NULL;
 	size_t bestLength = 0;
 
-	// First try exact matches
-	for (std::vector<LocationConfig>::const_iterator it = _config.locations.begin();
-		 it != _config.locations.end(); ++it) {
+	for (std::vector<LocationConfig>::const_iterator it = _config.locations.begin(); it != _config.locations.end(); ++it) {
 		if (it->path == uri)
 			return &(*it);
 	}
-
-	// Then find the longest matching prefix
 	for (std::vector<LocationConfig>::const_iterator it = _config.locations.begin();
 		 it != _config.locations.end(); ++it) {
-		// Root location should be the last resort
-		if (it->path == "/") {
-			if (!bestMatch) {
-				bestMatch = &(*it);
-				bestLength = 1;
-			}
-			continue;
-		}
-
-		// Check if URI starts with this location's path
 		if (uri.find(it->path) == 0) {
-			// Only match complete path segments
-			if (uri.length() == it->path.length() ||
-				uri[it->path.length()] == '/') {
-				if (it->path.length() > bestLength) {
-					bestMatch = &(*it);
-					bestLength = it->path.length();
-				}
+			if (it->path.length() > bestLength) {
+				bestMatch = &(*it);
+				bestLength = it->path.length();
 			}
 		}
 	}
-
-	// Return NULL for unmatched paths, even if root location exists
-	if (bestMatch && bestMatch->path == "/" && uri != "/")
-		return NULL;
-
 	return bestMatch;
 }
 
@@ -112,26 +88,31 @@ bool RequestHandler::isMethodAllowed(const std::string &method, const LocationCo
 }
 
 Response RequestHandler::handleGET(const HTTPRequest &request) const {
-	if (!FileHandler::validatePath(request.getPath()))
+	// Strip query parameters from the path before validation
+	std::string path = request.getPath();
+	size_t queryPos = path.find('?');
+	if (queryPos != std::string::npos)
+		path = path.substr(0, queryPos);
+
+	if (!FileHandler::validatePath(path))
 		return Response::makeErrorResponse(403);
 
-	const LocationConfig *location = getLocation(request.getPath());
+	const LocationConfig *location = getLocation(path);
 	if (!location)
 		return Response::makeErrorResponse(404);
 
-	std::string fullPath = FileHandler::constructFilePath(request.getPath(), *location);
+	std::string fullPath = FileHandler::constructFilePath(path, *location);
 
 	struct stat st;
 	if (stat(fullPath.c_str(), &st) == 0) {
 		if (S_ISDIR(st.st_mode))
 			return DirectoryHandler::handleDirectory(fullPath, *location);
 		else
-			return FileHandler::serveFile(fullPath, request.getPath());
+			return FileHandler::serveFile(fullPath, path);
 	}
 
 	return Response::makeErrorResponse(404);
 }
-
 Response RequestHandler::handlePOST(const HTTPRequest &request) const {
 	const LocationConfig *location = getLocation(request.getPath());
 	if (!location)

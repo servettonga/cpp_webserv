@@ -24,18 +24,23 @@ Response DirectoryHandler::handleDirectory(const std::string &path, const Locati
 		std::string indexPath = path + "/" + loc.index;
 		struct stat st;
 		if (stat(indexPath.c_str(), &st) == 0 && !S_ISDIR(st.st_mode))
-			return FileHandler::serveFile(indexPath, "/index.html");
+			return FileHandler::serveFile(indexPath, "/" + loc.index);
 	}
 	if (!loc.autoindex)
 		return Response::makeErrorResponse(403);
 
-	// Get the request URI by removing the root path prefix
-	std::string requestUri = path;
-	if (requestUri.find(loc.root) == 0)
-		requestUri = requestUri.substr(loc.root.length());
-	if (!requestUri.empty() && requestUri[0] != '/')
-		requestUri = "/" + requestUri;
-	std::string listing = createListing(path, requestUri);
+	// Get the relative path from root
+	std::string relativePath;
+	if (path.find(loc.root) == 0) {
+		relativePath = path.substr(loc.root.length());
+		while (!relativePath.empty() && relativePath[0] == '/')
+			relativePath = relativePath.substr(1);
+	}
+
+	// Use the complete request path for URLs
+	std::string urlPath = relativePath.empty() ? "/" : "/" + relativePath;
+
+	std::string listing = createListing(path, urlPath);
 	if (listing.empty())
 		return Response::makeErrorResponse(500);
 

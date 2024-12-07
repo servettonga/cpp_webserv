@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 13:04:01 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/03 18:31:13 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/05 10:59:35 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -25,26 +25,13 @@ Server::Server(const ServerConfig &config) :
 		_host(config.host),
 		_port(config.port),
 		_serverSocket(-1),
-		_isRunning(false),
 		_config(config),
 		_maxFd(0) {
-	FD_ZERO(&_masterSet);
-	FD_ZERO(&_readSet);
-	FD_ZERO(&_writeSet);
 }
 
 Server::~Server() {
 	stop();
 	std::cout << "Server " << _host << " stopped" << std::endl;
-}
-
-void Server::start() {
-	if (!initializeSocket())
-		throw std::runtime_error("Failed to initialize socket");
-
-	_isRunning = true;
-	std::cout << "Server " << _host << " started on port: " << _port << std::endl;
-	runEventLoop();
 }
 
 bool Server::initializeSocket() {
@@ -53,7 +40,15 @@ bool Server::initializeSocket() {
 		return false;
 
 	int opt = 1;
-	setsockopt(_serverSocket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+	if (setsockopt(_serverSocket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
+		close(_serverSocket);
+		return false;
+	}
+	if (setsockopt(_serverSocket, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt)) < 0) {
+		close(_serverSocket);
+		return false;
+	}
+
 	setNonBlocking(_serverSocket);
 
 	sockaddr_in addr = {};
@@ -61,12 +56,15 @@ bool Server::initializeSocket() {
 	addr.sin_port = htons(_port);
 	addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
-	if (bind(_serverSocket, (sockaddr *) &addr, sizeof(addr)) < 0 ||
-		listen(_serverSocket, SOMAXCONN) < 0)
+	if (bind(_serverSocket, (sockaddr *) &addr, sizeof(addr)) < 0) {
+		close(_serverSocket);
 		return false;
+	}
+	if (listen(_serverSocket, SOMAXCONN) < 0) {
+		close(_serverSocket);
+		return false;
+	}
 
-	FD_SET(_serverSocket, &_masterSet);
-	_maxFd = _serverSocket;
 	return true;
 }
 
@@ -78,126 +76,134 @@ void Server::setNonBlocking(int sockfd) {
 		throw std::runtime_error("Failed to set socket to non-blocking mode");
 }
 
-void Server::runEventLoop() {
-	int maxFailedSelects = 5;
-	int failedSelects = 0;
-	_lastActivity = time(NULL);
-
-	while (_isRunning) {
-		fd_set readSet = _masterSet;
-		fd_set writeSet = _writeSet;
-		timeval timeout = {0, 500000};
-
-		int activity = select(_maxFd + 1, &readSet, &writeSet, NULL, &timeout);
-
-		if (activity < 0) {
-			if (errno == EINTR)
-				continue;
-
-			failedSelects++;
-			std::cerr << "Select error: " << strerror(errno) << std::endl;
-
-			if (failedSelects >= maxFailedSelects) {
-				_isRunning = false;
-				break;
-			}
-			continue;
-		}
-		failedSelects = 0;
-		if (activity > 0) {
-			_lastActivity = time(NULL);  // Update activity timestamp
-			handleEvents(readSet, writeSet);
-		}
-		// Check idle timeout
-		if (_clients.empty() &&
-			difftime(time(NULL), _lastActivity) > IDLE_TIMEOUT) {
-			std::cout << "Server idle timeout reached" << std::endl;
-			_isRunning = false;
-			break;
-		}
-	}
-}
-
-void Server::handleEvents(fd_set &readSet, fd_set &writeSet) {
-	for (int i = 0; i <= _maxFd; i++) {
-		if (FD_ISSET(i, &readSet))
-			handleReadEvent(i);
-		if (FD_ISSET(i, &writeSet))
-			handleClientWrite(i);
-	}
-}
-
-void Server::handleReadEvent(int fd) {
-	if (fd == _serverSocket)
-		handleNewConnection();
-	else
-		handleClientData(fd);
-}
-
 void Server::handleClientData(int clientFd) {
 	char buffer[BUFFER_SIZE] = {};
 	ClientState &client = _clients[clientFd];
+	client.lastActivity = time(NULL);
 
 	ssize_t bytesRead = recv(clientFd, buffer, sizeof(buffer), 0);
 	if (bytesRead <= 0)
 		return (closeConnection(clientFd));
-	client.requestBuffer.append(buffer, bytesRead);    // Append new data to existing buffer
-	processCompleteRequests(clientFd, client);    // Process complete requests
+	client.requestBuffer.append(buffer, bytesRead);
+	processCompleteRequests(clientFd, client);
 }
 
-void Server::processCompleteRequests(int clientFd, ClientState &client) {
+bool Server::validateMethod(const std::string& method, const LocationConfig* location, ClientState& client) {
+	if (!location) return true;
+
+	for (std::vector<std::string>::const_iterator it = location->methods.begin(); it != location->methods.end(); ++it) {
+		if (*it == method) return true;
+	}
+
+	Response response(405);
+	response.addHeader("Content-Type", "text/html");
+	std::string allowed;
+	for (std::vector<std::string>::const_iterator it = location->methods.begin(); it != location->methods.end(); ++it) {
+		if (!allowed.empty()) allowed += ", ";
+		allowed += *it;
+	}
+	response.addHeader("Allow", allowed);
+	response.setBody("<html><body><h1>405 Method Not Allowed</h1></body></html>");
+	client.responseBuffer = response.toString();
+	client.requestBuffer.clear();
+	return false;
+}
+
+bool Server::validateContentLength(const std::string& requestBuffer, size_t headerEnd,
+								   const LocationConfig* location, ClientState& client) {
+	size_t clPos = requestBuffer.find("Content-Length: ");
+	if (clPos == std::string::npos || clPos > headerEnd) {
+		Response response(411, "Length Required");
+		client.responseBuffer = response.toString();
+		client.requestBuffer.clear();
+		return false;
+	}
+
+	size_t clEnd = requestBuffer.find("\r\n", clPos);
+	if (clEnd == std::string::npos) {
+		Response response(400, "Bad Request");
+		client.responseBuffer = response.toString();
+		client.requestBuffer.clear();
+		return false;
+	}
+
+	size_t contentLength = std::atol(requestBuffer.substr(clPos + 16, clEnd - (clPos + 16)).c_str());
+	if (location && contentLength > location->client_max_body_size) {
+		Response response = Response::makeErrorResponse(413);
+		client.responseBuffer = response.toString();
+		client.requestBuffer.clear();
+		return false;
+	}
+
+	return true;
+}
+
+void Server::handlePostRequest(int clientFd, ClientState& client, size_t headerEnd) {
+	const LocationConfig* location = _config.getLocation(
+			client.requestBuffer.substr(
+					client.requestBuffer.find(" ") + 1,
+					client.requestBuffer.find(" HTTP/") - client.requestBuffer.find(" ") - 1
+			)
+	);
+	// Validate content length header and size limits
+	if (!validateContentLength(client.requestBuffer, headerEnd, location, client))
+		return;
+
+	// Get content length
+	size_t clPos = client.requestBuffer.find("Content-Length: ");
+	size_t clEnd = client.requestBuffer.find("\r\n", clPos);
+	size_t contentLength = std::atol(
+			client.requestBuffer.substr(clPos + 16, clEnd - (clPos + 16)).c_str()
+	);
+	// Check if received all the data
+	if (client.requestBuffer.length() >= headerEnd + 4 + contentLength) {
+		processRequest(clientFd, client);
+		client.requestBuffer.clear();
+	}
+	// If not complete, wait for more data
+}
+
+void Server::processCompleteRequests(int clientFd, ClientState& client) {
 	size_t headerEnd = client.requestBuffer.find("\r\n\r\n");
 	if (headerEnd == std::string::npos)
 		return;
 
-	if (client.requestBuffer.find("POST") == 0) {
-		size_t clPos = client.requestBuffer.find("Content-Length: ");
-		if (clPos == std::string::npos || clPos > headerEnd) {
-			Response response(411, "Length Required");
-			client.responseBuffer = response.toString();
-			FD_SET(clientFd, &_writeSet);
-			client.requestBuffer.clear();
-			return;
-		}
-		// Parse Content-Length value
-		size_t clEnd = client.requestBuffer.find("\r\n", clPos);
-		if (clEnd == std::string::npos) {
-			Response response(400, "Bad Request");
-			client.responseBuffer = response.toString();
-			FD_SET(clientFd, &_writeSet);
-			client.requestBuffer.clear();
-			return;
-		}
-		size_t contentLength = std::atol(
-				client.requestBuffer.substr(clPos + 16, clEnd - (clPos + 16)).c_str()
-		);
-
-		// Get location and check the size limit before accepting body
-		const LocationConfig *location = _config.getLocation(
-				client.requestBuffer.substr(
-						client.requestBuffer.find(" ") + 1,
-						client.requestBuffer.find(" HTTP/") - client.requestBuffer.find(" ") - 1
-				)
-		);
-		if (location && contentLength > location->client_max_body_size) {
-			Response response = Response::makeErrorResponse(413);
-			client.responseBuffer = response.toString();
-			FD_SET(clientFd, &_writeSet);
-			client.requestBuffer.clear();
-			return;
-		}
-		if (client.requestBuffer.length() >= headerEnd + 4 + contentLength) {
-			processRequest(clientFd, client);
-			client.requestBuffer.clear();
-		}
+	size_t firstSpace = client.requestBuffer.find(" ");
+	if (firstSpace == std::string::npos) {
+		sendBadRequestResponse(clientFd);
+		client.requestBuffer.clear();
 		return;
 	}
 
-	if (client.requestBuffer.find("GET") == 0 ||
-		client.requestBuffer.find("DELETE") == 0) {
-		processRequest(clientFd, client);
+	std::string method = client.requestBuffer.substr(0, firstSpace);
+	size_t secondSpace = client.requestBuffer.find(" ", firstSpace + 1);
+	if (secondSpace == std::string::npos) {
+		sendBadRequestResponse(clientFd);
 		client.requestBuffer.clear();
 		return;
+	}
+
+	const LocationConfig* location = _config.getLocation(
+			client.requestBuffer.substr(
+					client.requestBuffer.find(" ") + 1,
+					client.requestBuffer.find(" HTTP/") - client.requestBuffer.find(" ") - 1
+			)
+	);
+
+	if (!validateMethod(method, location, client))
+		return;
+
+	if (method == "POST") {
+		handlePostRequest(clientFd, client, headerEnd);
+	} else if (method == "GET" || method == "DELETE") {
+		processRequest(clientFd, client);
+		client.requestBuffer.clear();
+	} else {
+		Response response(501);
+		response.addHeader("Content-Type", "text/html");
+		response.setBody("<html><body><h1>501 Not Implemented</h1></body></html>");
+		client.responseBuffer = response.toString();
+		client.requestBuffer.clear();
 	}
 }
 
@@ -210,13 +216,13 @@ void Server::handleNewConnection() {
 		return;
 
 	setNonBlocking(clientFd);
-	FD_SET(clientFd, &_masterSet);
-	_maxFd = std::max(_maxFd, clientFd);
 	_clients[clientFd] = ClientState();
+	updateMaxFileDescriptor();
 }
 
 void Server::handleClientWrite(int clientFd) {
 	ClientState &client = _clients[clientFd];
+	client.lastActivity = time(NULL);
 	if (client.responseBuffer.empty())
 		return;
 
@@ -255,7 +261,6 @@ void Server::processRequest(int clientFd, ClientState &client) {
 	RequestHandler handler(_config);
 	Response response = handler.handleRequest(request);
 	client.responseBuffer = response.toString();
-	FD_SET(clientFd, &_writeSet);
 }
 
 void Server::sendBadRequestResponse(int clientFd) {
@@ -263,29 +268,70 @@ void Server::sendBadRequestResponse(int clientFd) {
 	response.addHeader("Content-Type", "text/html");
 	response.setBody("<html><body><h1>Bad Request</h1></body></html>");
 	_clients[clientFd].responseBuffer = response.toString();
-	FD_SET(clientFd, &_writeSet);
 }
 
 void Server::closeConnection(int clientFd) {
 	close(clientFd);
-	FD_CLR(clientFd, &_masterSet);
-	FD_CLR(clientFd, &_writeSet);
 	_clients.erase(clientFd);
 }
 
 void Server::stop() {
-	_isRunning = false;
-	for (std::map<int, ClientState>::iterator it = _clients.begin();
-		 it != _clients.end(); ++it) {
+	for (std::map<int, ClientState>::iterator it = _clients.begin(); it != _clients.end(); ++it)
 		close(it->first);
-	}
 	_clients.clear();
 	close(_serverSocket);
-	FD_ZERO(&_masterSet);
-	FD_ZERO(&_readSet);
-	FD_ZERO(&_writeSet);
 }
 
-Server::ClientState::ClientState() : writeBufferSize(1024 * 1024) { // 1MB write buffer
+void Server::initialize() {
+	if (!initializeSocket())
+		throw std::runtime_error("Failed to initialize socket");
+
+	updateMaxFileDescriptor();
+	std::cout << "Server " << _host << " started on port: " << _port << std::endl;
+}
+
+void Server::handleExistingConnections(fd_set &readSet, fd_set &writeSet) {
+	checkIdleConnections();
+
+	std::vector<int> fdsToCheck;
+	for (std::map<int, ClientState>::iterator it = _clients.begin();
+		 it != _clients.end(); ++it) {
+		fdsToCheck.push_back(it->first);
+	}
+	for (size_t i = 0; i < fdsToCheck.size(); ++i) {
+		int fd = fdsToCheck[i];
+		if (_clients.find(fd) != _clients.end()) {
+			if (FD_ISSET(fd, &readSet))
+				handleClientData(fd);
+			if (_clients.find(fd) != _clients.end() && FD_ISSET(fd, &writeSet))
+				handleClientWrite(fd);
+		}
+	}
+	updateMaxFileDescriptor();
+}
+
+void Server::checkIdleConnections() {
+	time_t currentTime = time(NULL);
+	std::vector<int> idleConnections;
+
+	for (std::map<int, ClientState>::iterator it = _clients.begin(); it != _clients.end(); ++it)
+		if (isConnectionIdle(currentTime, it->second))
+			idleConnections.push_back(it->first);
+	for (size_t i = 0; i < idleConnections.size(); ++i)
+		closeConnection(idleConnections[i]);
+}
+
+bool Server::isConnectionIdle(time_t currentTime, const ClientState &client) const {
+	return (currentTime - client.lastActivity) > IDLE_TIMEOUT;
+}
+
+Server::ClientState::ClientState() : writeBufferSize(DEFAULT_WRITE_BUFFER_SIZE), lastActivity(time(NULL)) {
 	writeBuffer.reserve(writeBufferSize);
+}
+
+void Server::updateMaxFileDescriptor() {
+	_maxFd = _serverSocket;
+	for (std::map<int, ClientState>::const_iterator it = _clients.begin(); it != _clients.end(); ++it)
+		if (it->first >= 0 && it->first < FD_SETSIZE)
+			_maxFd = std::max(_maxFd, it->first);
 }
