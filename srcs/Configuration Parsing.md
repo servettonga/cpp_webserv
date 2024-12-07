@@ -55,7 +55,7 @@
        char currentChar;
 
        void advance();
-       void skipWhitespace();
+       void skipWhiteSpace();
        void skipComment();
        Token identifier();
        Token number();
@@ -85,7 +85,7 @@
        }
    }
 
-   void Lexer::skipWhitespace() {
+   void Lexer::skipWhiteSpace() {
        while (std::isspace(currentChar)) {
            advance();
        }
@@ -100,7 +100,7 @@
    }
 
    Token Lexer::getNextToken() {
-       skipWhitespace();
+       skipWhiteSpace();
        skipComment();
 
        if (currentChar == EOF) {
