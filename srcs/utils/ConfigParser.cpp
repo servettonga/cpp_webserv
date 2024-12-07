@@ -6,7 +6,7 @@
 /*   By: jdepka <jdepka@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 13:04:01 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/05 13:11:42 by jdepka           ###   ########.fr       */
+/*   Updated: 2024/12/07 18:38:52 by jdepka           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -412,7 +412,7 @@ void ConfigParser::parseLocation(LocationConfig &location) {
             std::string size = line.substr(20);
             trimWhitespace(size);
             try {
-                location.client_max_body_size = std::stoul(size);
+                location.client_max_body_size = std::strtoul(size.c_str(), NULL, 10);
             } catch (const std::invalid_argument&) {
                 addError("Invalid client_max_body_size at line: " + Utils::StringUtils::numToString(_currentLine));
             }
