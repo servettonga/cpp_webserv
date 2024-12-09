@@ -6,7 +6,7 @@
 /*   By: jdepka <jdepka@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/11/02 19:53:07 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/05 13:06:54 by jdepka           ###   ########.fr       */
+/*   Updated: 2024/12/09 12:26:45 by jdepka           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -108,6 +108,8 @@ Response CGIHandler::executeCGI(const HTTPRequest &request, const std::string &s
 
         return response;
     }
+
+    return Response();
 }
 
 void CGIHandler::setupEnvironment(const HTTPRequest &request) {
