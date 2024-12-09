@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   CGIHandler.hpp                                     :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
+/*   By: jdepka <jdepka@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/11/02 19:53:07 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/04 22:17:51 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/09 12:25:26 by jdepka           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -18,6 +18,13 @@
 #include "../http/HTTPRequest.hpp"
 #include "../http/Response.hpp"
 #include "../server/ServerConfig.hpp"
+#include <iostream>
+#include <unistd.h>
+#include <string.h>
+#include <cstring>
+#include <sys/wait.h>
+#include <cstdlib>
+#include <cerrno>
 
 class CGIHandler {
 	public:
