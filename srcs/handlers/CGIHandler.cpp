@@ -6,7 +6,7 @@
 /*   By: jdepka <jdepka@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/11/02 19:53:07 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/09 12:26:45 by jdepka           ###   ########.fr       */
+/*   Updated: 2024/12/09 12:32:09 by jdepka           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -89,7 +89,9 @@ Response CGIHandler::executeCGI(const HTTPRequest &request, const std::string &s
             exit(1);
         }
 
-        if (execve(script.c_str(), NULL, env) < 0) {
+        char *argv[] = { const_cast<char*>(script.c_str()), NULL };
+
+        if (execve(script.c_str(), argv, env) < 0) {
             std::cerr << "Error executing CGI script!" << std::endl;
             exit(1);
         }
