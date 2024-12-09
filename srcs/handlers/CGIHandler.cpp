@@ -6,7 +6,7 @@
 /*   By: jdepka <jdepka@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/11/02 19:53:07 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/09 12:32:09 by jdepka           ###   ########.fr       */
+/*   Updated: 2024/12/09 12:48:59 by jdepka           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -66,12 +66,14 @@ Response CGIHandler::executeCGI(const HTTPRequest &request, const std::string &s
 
     if (pipe(inputPipe) < 0 || pipe(outputPipe) < 0) {
         std::cerr << "Error creating pipes!" << std::endl;
+        freeEnvArray(env);
         return Response::makeErrorResponse(500);
     }
 
     pid_t pid = fork();
     if (pid < 0) {
         std::cerr << "Error forking process!" << std::endl;
+        freeEnvArray(env);
         return Response::makeErrorResponse(500);
     }
 
@@ -81,11 +83,13 @@ Response CGIHandler::executeCGI(const HTTPRequest &request, const std::string &s
 
         if (dup2(inputPipe[0], STDIN_FILENO) < 0 || dup2(outputPipe[1], STDOUT_FILENO) < 0 || dup2(outputPipe[1], STDERR_FILENO) < 0) {
             std::cerr << "Error redirecting file descriptors!" << std::endl;
+            freeEnvArray(env);
             exit(1);
         }
 
         if (chdir(workingDir.c_str()) < 0) {
             std::cerr << "Error changing working directory!" << std::endl;
+            freeEnvArray(env);
             exit(1);
         }
 
@@ -93,6 +97,7 @@ Response CGIHandler::executeCGI(const HTTPRequest &request, const std::string &s
 
         if (execve(script.c_str(), argv, env) < 0) {
             std::cerr << "Error executing CGI script!" << std::endl;
+            freeEnvArray(env);
             exit(1);
         }
     } else {
@@ -105,12 +110,15 @@ Response CGIHandler::executeCGI(const HTTPRequest &request, const std::string &s
         int status;
         waitpid(pid, &status, 0);
 
+        freeEnvArray(env);
+
         Response response = Response::makeErrorResponse(200);
         parseOutput(output, response);
 
         return response;
     }
 
+    freeEnvArray(env);
     return Response();
 }
 
