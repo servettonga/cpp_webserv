@@ -6,7 +6,7 @@
 /*   By: jdepka <jdepka@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/11/02 19:53:07 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/05 12:19:11 by jdepka           ###   ########.fr       */
+/*   Updated: 2024/12/09 12:24:26 by jdepka           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -23,6 +23,7 @@
 #include <string.h>
 #include <cstring>
 #include <sys/wait.h>
+#include <cstdlib>
 
 class CGIHandler {
 	public:
