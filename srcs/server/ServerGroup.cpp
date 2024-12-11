@@ -6,11 +6,12 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/12/04 11:30:42 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/04 19:55:16 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/11 13:55:20 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "ServerGroup.hpp"
+#include "../utils/ConfigParser.hpp"
 #include <algorithm>
 #include <iostream>
 #include <sys/select.h>
@@ -18,12 +19,16 @@
 #include <cstring>
 #include <csignal>
 
+ServerGroup *ServerGroup::_instance = NULL;
 bool ServerGroup::_shutdownRequested = false;
+std::string ServerGroup::_configFile;
 
-ServerGroup::ServerGroup() : _isRunning(false), _maxFd(0) {
+ServerGroup::ServerGroup(const std::string& configFile): _isRunning(false), _maxFd(0) {
 	FD_ZERO(&_masterSet);
 	FD_ZERO(&_readSet);
 	FD_ZERO(&_writeSet);
+	_configFile = configFile;
+	_instance = this;
 }
 
 ServerGroup::~ServerGroup() {
@@ -158,16 +163,55 @@ void ServerGroup::setupSignalHandlers() {
 
 	if (sigaction(SIGINT, &sa, NULL) == -1 ||
 		sigaction(SIGTERM, &sa, NULL) == -1 ||
-		sigaction(SIGQUIT, &sa, NULL) == -1) {
+		sigaction(SIGQUIT, &sa, NULL) == -1 ||
+		sigaction(SIGHUP, &sa, NULL) == -1) {
 		throw std::runtime_error("Failed to set up signal handlers");
 	}
 }
 
 void ServerGroup::signalHandler(int signum) {
-	std::cout << "\nReceived signal " << signum << ", shutting down..." << std::endl;
-	_shutdownRequested = true;
+	if (signum == SIGHUP) {
+		std::cout << "Received SIGHUP, reloading configuration...\n";
+		if (_instance)
+			_instance->reloadConfiguration(_instance->_configFile);
+	} else {
+		std::cout << "\nReceived signal " << signum << ", shutting down...\n";
+		_shutdownRequested = true;
+	}
 }
 
 void ServerGroup::cleanup() {
 	stop();
+}
+
+void ServerGroup::reloadConfiguration(const std::string &configFile) {
+	try {
+		ConfigParser parser(configFile);
+		parser.reload();
+		if (!parser.validate()) {
+			std::cerr << "Configuration validation failed during reload:\n";
+			std::vector<std::string> errors = parser.getErrors();
+			for (std::vector<std::string>::const_iterator it = errors.begin();
+				 it != errors.end(); ++it) {
+				std::cerr << *it << std::endl;
+			}
+			return;
+		}
+		std::vector<ServerConfig> newConfigs = parser.parse();	// Parse new configuration
+		if (newConfigs.empty()) {
+			std::cerr << "No valid server configurations found during reload\n";
+			return;
+		}
+		stop();	// Stop existing servers
+		// Start new servers
+		for (std::vector<ServerConfig>::iterator it = newConfigs.begin();
+			 it != newConfigs.end(); ++it) {
+			addServer(*it);
+		}
+		initializeServers();
+		_isRunning = true;
+		std::cout << "Configuration reloaded successfully\n";
+	} catch (const std::exception& e) {
+		std::cerr << "Failed to reload configuration: " << e.what() << std::endl;
+	}
 }

@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/11/29 20:09:27 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/29 22:42:42 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/11 13:14:10 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -98,7 +98,6 @@ bool FileHandler::saveUploadedFile(const std::string &filepath, const std::strin
 	while (remaining > 0) {
 		size_t chunk = std::min(remaining, CHUNK_SIZE);
 		file.write(content.c_str() + offset, chunk);
-
 		offset += chunk;
 		remaining -= chunk;
 	}
@@ -120,10 +119,8 @@ Response FileHandler::handleFileDelete(const HTTPRequest &request, const Locatio
 	struct stat st;
 	if (stat(filepath.c_str(), &st) != 0)
 		return Response(404, "Not Found");
-
 	if (S_ISDIR(st.st_mode))
 		return Response(403, "Forbidden - Cannot delete directories");
-
 	if (unlink(filepath.c_str()) != 0)
 		return Response(500, "Internal Server Error");
 
@@ -167,33 +164,44 @@ std::string FileHandler::sanitizeFilename(const std::string &filename) {
 	return safe;
 }
 
-std::string FileHandler::constructFilePath(const std::string &uri, const LocationConfig &loc) {
-	std::string path = loc.root;
-	std::string locationDir = loc.path;
+std::string FileHandler::constructFilePath(const std::string &uri, const LocationConfig &location) {
+	std::string decodedUri = urlDecode(uri);
+	std::string path = location.root;
 
-	if (locationDir[0] == '/')
-		locationDir = locationDir.substr(1);
-
-	if (uri.find(loc.path) == 0) {
-		if (!path.empty() && path[path.length()-1] != '/')
-			path += '/';
-		path += locationDir;
-
-		std::string remaining = uri.substr(loc.path.length());
-		if (!remaining.empty()) {
-			if (remaining[0] == '/')
-				remaining = remaining.substr(1);
-			if (!remaining.empty()) {
-				if (path[path.length()-1] != '/')
-					path += '/';
-				path += remaining;
+	if (decodedUri == location.path) {
+		if (location.path != "/") {
+			std::string locationPath = location.path;
+			if (locationPath[0] == '/') {
+				locationPath = locationPath.substr(1);
 			}
+			if (!path.empty() && path[path.length()-1] != '/') {
+				path += '/';
+			}
+			path += locationPath;
 		}
+		return path;
 	}
 
-	return urlDecode(path);
-}
+	std::string relativePath;
+	if (decodedUri.find(location.path) == 0)
+		relativePath = decodedUri.substr(location.path.length());
+	else
+		relativePath = decodedUri;
 
+	if (!relativePath.empty() && relativePath[0] == '/')
+		relativePath = relativePath.substr(1);
+	if (!path.empty() && path[path.length()-1] != '/')
+		path += '/';
+	if (location.path == "/")
+		return path + relativePath;
+	std::string locationPath = location.path;
+	if (locationPath[0] == '/')
+		locationPath = locationPath.substr(1);
+	if (path.find(locationPath) == std::string::npos)
+		path += locationPath + "/";
+
+	return path + relativePath;
+}
 
 bool FileHandler::isValidFilePath(const std::string &path) {
 	if (path.find("..") != std::string::npos)	// Check for path traversal
@@ -202,10 +210,8 @@ bool FileHandler::isValidFilePath(const std::string &path) {
 	struct stat st;
 	if (stat(path.c_str(), &st) != 0)	// Check if the path exists
 		return false;
-
 	if (access(path.c_str(), R_OK) != 0)	// Check if the file is accessible
 		return false;
-
 	return true;
 }
 

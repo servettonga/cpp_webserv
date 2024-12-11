@@ -17,36 +17,23 @@
 #include <ctime>
 #include <sstream>
 
-using namespace Utils;
-
-Response DirectoryHandler::handleDirectory(const std::string &path, const LocationConfig &loc) {
-	if (!loc.index.empty()) {
-		std::string indexPath = path + "/" + loc.index;
-		struct stat st;
-		if (stat(indexPath.c_str(), &st) == 0 && !S_ISDIR(st.st_mode))
-			return FileHandler::serveFile(indexPath, "/" + loc.index);
-	}
-	if (!loc.autoindex)
+Response DirectoryHandler::handleDirectory(const std::string& dirPath, const LocationConfig& location, const std::string& requestPath) {
+	if (!location.autoindex)
 		return Response::makeErrorResponse(403);
 
-	// Get the relative path from root
-	std::string relativePath;
-	if (path.find(loc.root) == 0) {
-		relativePath = path.substr(loc.root.length());
-		while (!relativePath.empty() && relativePath[0] == '/')
-			relativePath = relativePath.substr(1);
-	}
+	DIR* dir = opendir(dirPath.c_str());
+	if (!dir)
+		return Response::makeErrorResponse(404);
+	closedir(dir);
 
-	// Use the complete request path for URLs
-	std::string urlPath = relativePath.empty() ? "/" : "/" + relativePath;
-
-	std::string listing = createListing(path, urlPath);
-	if (listing.empty())
+	// Use the actual request path for the directory listing
+	std::string html = createListing(dirPath, requestPath);
+	if (html.empty())
 		return Response::makeErrorResponse(500);
 
 	Response response(200);
 	response.addHeader("Content-Type", "text/html");
-	response.setBody(listing);
+	response.setBody(html);
 	return response;
 }
 
@@ -63,18 +50,23 @@ std::string DirectoryHandler::createListing(const std::string &path, const std::
 		displayPath = displayPath.substr(0, displayPath.length() - 1);
 
 	std::stringstream html;
-	html << createListingHeader(displayPath)
-		 << createListingBody(dir, path, displayPath)
-		 << "</table></body></html>";
+	html << createListingHeader(displayPath);
+	html << createListingBody(dir, path, displayPath);
+	html << "</table></body></html>";
 
 	closedir(dir);
 	return html.str();
 }
 
 std::string DirectoryHandler::createListingHeader(const std::string &urlPath) {
+	// Don't add extra slashes
+	std::string displayPath = urlPath;
+	if (!displayPath.empty() && displayPath[displayPath.length() - 1] == '/')
+		displayPath = displayPath.substr(0, displayPath.length() - 1);
+
 	std::stringstream header;
 	header << "<html><head>"
-		   << "<title>Directory: " << urlPath << "</title>"
+		   << "<title>Directory: " << displayPath << "</title>"
 		   << "<style>"
 		   << "table{border-collapse:collapse;width:100%}"
 		   << "th,td{padding:8px;text-align:left}"
@@ -83,9 +75,10 @@ std::string DirectoryHandler::createListingHeader(const std::string &urlPath) {
 		   << "</style>"
 		   << createDeleteScript()
 		   << "</head><body>"
-		   << "<h1>Directory: " << urlPath << "</h1>"
+		   << "<h1>Directory: " << displayPath << "</h1>"
 		   << "<table><tr><th>Name</th><th>Size</th>"
 		   << "<th>Last Modified</th><th>Actions</th></tr>";
+
 	return header.str();
 }
 
@@ -151,7 +144,7 @@ std::string DirectoryHandler::createListingBody(DIR* dir, const std::string &pat
 std::string DirectoryHandler::formatFileSize(const struct stat &st) {
 	if (S_ISDIR(st.st_mode))
 		return "-";
-	return StringUtils::numToString(st.st_size) + " bytes";
+	return Utils::numToString(st.st_size) + " bytes";
 }
 
 std::string DirectoryHandler::formatModTime(const struct stat &st) {

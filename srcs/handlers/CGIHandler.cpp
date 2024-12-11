@@ -238,7 +238,7 @@ std::string CGIHandler::unchunkData(const std::string &chunkedData) {
 	std::string result;
     size_t pos = 0;
     size_t chunkSize = 0;
-    size_t chunkDataStart = 0;
+//    size_t chunkDataStart = 0;
 
     while (pos < chunkedData.size()) {
         size_t endOfSizeLine = chunkedData.find("\r\n", pos);

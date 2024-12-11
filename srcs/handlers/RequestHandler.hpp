@@ -25,6 +25,7 @@ class RequestHandler {
 
 		const LocationConfig *getLocation(const std::string &uri) const;
 		bool isMethodAllowed(const std::string &method, const LocationConfig &loc) const;
+		std::string findFirstExistingIndex(const std::string &dirPath, const std::string &indexFiles) const;
 
 		const ServerConfig &_config;
 

@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 20:05:44 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/03 14:15:13 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/10 23:57:31 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -15,6 +15,7 @@
 #include "DirectoryHandler.hpp"
 #include <sys/stat.h>
 #include <cstring>
+#include <sstream>
 
 RequestHandler::RequestHandler(const ServerConfig &config) : _config(config) {}
 
@@ -88,7 +89,6 @@ bool RequestHandler::isMethodAllowed(const std::string &method, const LocationCo
 }
 
 Response RequestHandler::handleGET(const HTTPRequest &request) const {
-	// Strip query parameters from the path before validation
 	std::string path = request.getPath();
 	size_t queryPos = path.find('?');
 	if (queryPos != std::string::npos)
@@ -97,7 +97,7 @@ Response RequestHandler::handleGET(const HTTPRequest &request) const {
 	if (!FileHandler::validatePath(path))
 		return Response::makeErrorResponse(403);
 
-	const LocationConfig *location = getLocation(path);
+	const LocationConfig *location = _config.getLocation(path);
 	if (!location)
 		return Response::makeErrorResponse(404);
 
@@ -105,20 +105,29 @@ Response RequestHandler::handleGET(const HTTPRequest &request) const {
 
 	struct stat st;
 	if (stat(fullPath.c_str(), &st) == 0) {
-		if (S_ISDIR(st.st_mode))
-			return DirectoryHandler::handleDirectory(fullPath, *location);
-		else
-			return FileHandler::serveFile(fullPath, path);
+		if (S_ISDIR(st.st_mode)) {
+			if (location->autoindex)
+				return DirectoryHandler::handleDirectory(fullPath, *location, path);  // Pass the request path
+			std::string indexFile = findFirstExistingIndex(
+					fullPath,
+					location->index.empty() ? _config.index : location->index
+			);
+			if (!indexFile.empty())
+				return FileHandler::serveFile(indexFile, path + "/" +
+														 indexFile.substr(indexFile.find_last_of('/') + 1));
+			return Response::makeErrorResponse(403);
+		}
+		return FileHandler::serveFile(fullPath, path);
 	}
 
 	return Response::makeErrorResponse(404);
 }
+
 Response RequestHandler::handlePOST(const HTTPRequest &request) const {
 	const LocationConfig *location = getLocation(request.getPath());
 	if (!location)
 		return Response::makeErrorResponse(404);
 
-	// Check body size against location limit
 	if (request.getBody().size() > location->client_max_body_size)
 		return Response::makeErrorResponse(413);
 
@@ -141,4 +150,19 @@ Response RequestHandler::handleDELETE(const HTTPRequest &request) const {
 		return Response::makeErrorResponse(405);
 
 	return FileHandler::handleFileDelete(request, *location);
+}
+
+std::string RequestHandler::findFirstExistingIndex(const std::string& dirPath, const std::string& indexFiles) const {
+	std::istringstream iss(indexFiles);
+	std::string indexFile;
+
+	while (iss >> indexFile) {
+		if (!indexFile.empty() && indexFile[indexFile.length()-1] == ';')
+			indexFile = indexFile.substr(0, indexFile.length()-1);
+		std::string fullPath = dirPath + "/" + indexFile;
+		struct stat st;
+		if (stat(fullPath.c_str(), &st) == 0 && !S_ISDIR(st.st_mode))
+			return fullPath;
+	}
+	return "";
 }

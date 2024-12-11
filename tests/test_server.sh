@@ -8,12 +8,12 @@ NC='\033[0m'
 # Server configurations
 MAIN_SERVER="http://localhost:8080"
 PORTFOLIO_SERVER="http://localhost:8081"
-UPLOAD_PATH="/files/uploads"
+UPLOAD_PATH="/upload"
 
 # Test files
 SMALL_FILE="small_1kb.txt"
 MEDIUM_FILE="medium_5mb.txt"
-LARGE_FILE="large_15mb.txt"
+LARGE_FILE="large_25mb.txt"
 
 # Function to print test result
 test_result() {
@@ -45,7 +45,7 @@ test_virtual_host() {
 echo "Creating test files..."
 dd if=/dev/zero of="$SMALL_FILE" bs=1K count=1 2>/dev/null
 dd if=/dev/zero of="$MEDIUM_FILE" bs=1M count=5 2>/dev/null
-dd if=/dev/zero of="$LARGE_FILE" bs=1M count=15 2>/dev/null
+dd if=/dev/zero of="$LARGE_FILE" bs=1M count=25 2>/dev/null
 
 # Test main server
 echo -e "\nTesting main server (8080)..."
@@ -66,16 +66,24 @@ test_virtual_host "$PORTFOLIO_SERVER/" "portfolio.localhost" "200" "Portfolio vi
 echo -e "\nTesting uploads on main server..."
 for file in "$SMALL_FILE" "$MEDIUM_FILE"; do
     echo "Attempting to upload $file..."
-    RESPONSE=$(curl -s -X POST -F "file=@$file" "$MAIN_SERVER$UPLOAD_PATH")
-    test_result $? "Upload of $file" "$RESPONSE"
+    # Get status code and response body separately
+    RESPONSE=$(curl -s -w "\n%{http_code}" -X POST -F "file=@$file" "$MAIN_SERVER$UPLOAD_PATH")
+    STATUS_CODE=$(echo "$RESPONSE" | tail -n1)
 
-    # Verify upload
-    echo "Verifying upload of $file..."
-    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$MAIN_SERVER$UPLOAD_PATH/$file")
-    if [ "$HTTP_CODE" = "200" ]; then
-        test_result 0 "Verified upload of $file"
+    # Check for successful upload (201 Created)
+    if [ "$STATUS_CODE" = "201" ]; then
+        test_result 0 "Upload of $file"
+
+        # Verify upload
+        echo "Verifying upload of $file..."
+        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$MAIN_SERVER$UPLOAD_PATH/$file")
+        if [ "$HTTP_CODE" = "200" ]; then
+            test_result 0 "Verified upload of $file"
+        else
+            test_result 1 "File $file not uploaded" "HTTP $HTTP_CODE"
+        fi
     else
-        test_result 1 "File $file not uploaded" "HTTP $HTTP_CODE"
+        test_result 1 "Failed to upload $file" "HTTP $STATUS_CODE"
     fi
     sleep 1
 done

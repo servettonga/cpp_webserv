@@ -22,7 +22,7 @@
 
 class DirectoryHandler {
 	public:
-		static Response handleDirectory(const std::string& path, const LocationConfig& loc);
+		static Response handleDirectory(const std::string& dirPath, const LocationConfig& location, const std::string& requestPath);
 		static std::string createListing(const std::string& path, const std::string& urlPath);
 
 	private:
