@@ -119,3 +119,7 @@ std::string HTTPRequest::getHeader(const std::string &name) const {
 	std::map<std::string, std::string>::const_iterator it = _headers.find(name);
 	return it != _headers.end() ? it->second : "";
 }
+
+void HTTPRequest::setConfig(const void *config) { _config = config; }
+
+const void *HTTPRequest::getConfig() const { return _config; }

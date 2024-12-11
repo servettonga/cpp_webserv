@@ -31,4 +31,32 @@ check_install perl perl
 [ ! -f /usr/bin/php-cgi ] && sudo ln -s "$(which php-cgi)" /usr/bin/php-cgi
 [ ! -f /usr/bin/perl ] && sudo ln -s "$(which perl)" /usr/bin/perl
 
+# Create CGI directory and test scripts
+mkdir -p www/cgi-bin
+
+# Python test script
+cat > www/cgi-bin/test.py << 'EOF'
+#!/usr/bin/env python3
+print("Content-Type: text/html\n")
+print("<html><body>")
+print("<h1>Python CGI Test</h1>")
+print("<p>This is a test of Python CGI!</p>")
+print("</body></html>")
+EOF
+
+# PHP test script
+cat > www/cgi-bin/test.php << 'EOF'
+#!/usr/bin/env php-cgi
+<?php
+header("Content-Type: text/html");
+echo "<html><body>";
+echo "<h1>PHP CGI Test</h1>";
+echo "<p>This is a test of PHP CGI!</p>";
+echo "</body></html>";
+?>
+EOF
+
+# Set proper permissions
+chmod 755 www/cgi-bin/*.{py,php}
+
 echo "CGI handlers setup complete"

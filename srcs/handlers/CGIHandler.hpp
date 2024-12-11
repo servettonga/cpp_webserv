@@ -17,10 +17,7 @@
 #include <map>
 #include "../http/HTTPRequest.hpp"
 #include "../http/Response.hpp"
-#include "../server/ServerConfig.hpp"
-#include <iostream>
 #include <unistd.h>
-#include <string.h>
 #include <cstring>
 #include <sys/wait.h>
 #include <cstdlib>
@@ -43,10 +40,15 @@ class CGIHandler {
 		std::string _pathInfo;
 
 		// Helper methods
-		void setupEnvironment(const HTTPRequest &request);
+		bool createPipes(int inputPipe[2], int outputPipe[2]);
+		void cleanupPipes(int inputPipe[2], int outputPipe[2]);
+		Response handleChildProcess(const HTTPRequest &request, const std::string &scriptPath,
+									int inputPipe[2], int outputPipe[2], char **env);
+		Response handleParentProcess(pid_t pid, const HTTPRequest &request,
+									 int inputPipe[2], int outputPipe[2], char **env);
+		void setupEnvironment(const HTTPRequest &request, const std::string &scriptPath);
 		char** createEnvArray();
 		void freeEnvArray(char** env);
-		std::string unchunkData(const std::string &chunkedData);
 		std::string readFromPipe(int fd);
 		void writeToPipe(int fd, const std::string &data);
 		void parseOutput(const std::string &output, Response &response);

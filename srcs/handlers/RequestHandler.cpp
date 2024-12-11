@@ -13,13 +13,17 @@
 #include "RequestHandler.hpp"
 #include "FileHandler.hpp"
 #include "DirectoryHandler.hpp"
+#include "CGIHandler.hpp"
 #include <sys/stat.h>
 #include <cstring>
 #include <sstream>
+#include <iostream>
 
 RequestHandler::RequestHandler(const ServerConfig &config) : _config(config) {}
 
 Response RequestHandler::handleRequest(const HTTPRequest &request) {
+	HTTPRequest req = request;
+	req.setConfig(&_config);
 	const LocationConfig *location = getLocation(request.getPath());
 	if (!location) {
 		std::map<int, std::string>::const_iterator it = _config.error_pages.find(404);
@@ -38,7 +42,7 @@ Response RequestHandler::handleRequest(const HTTPRequest &request) {
 		return Response::makeErrorResponse(404);
 	}
 
-	if (!isMethodAllowed(request.getMethod(), *location)) {
+	if (!isMethodAllowed(req.getMethod(), *location)) {
 		Response error(405);
 		error.addHeader("Content-Type", "text/html");
 		error.addHeader("Allow", "GET, POST");
@@ -46,11 +50,11 @@ Response RequestHandler::handleRequest(const HTTPRequest &request) {
 		return error;
 	}
 
-	if (request.getMethod() == "GET")
+	if (req.getMethod() == "GET")
 		return handleGET(request);
-	else if (request.getMethod() == "POST")
+	else if (req.getMethod() == "POST")
 		return handlePOST(request);
-	else if (request.getMethod() == "DELETE")
+	else if (req.getMethod() == "DELETE")
 		return handleDELETE(request);
 
 	return Response::makeErrorResponse(501);
@@ -97,7 +101,7 @@ Response RequestHandler::handleGET(const HTTPRequest &request) const {
 	if (!FileHandler::validatePath(path))
 		return Response::makeErrorResponse(403);
 
-	const LocationConfig *location = _config.getLocation(path);
+	const LocationConfig *location = getLocation(path);
 	if (!location)
 		return Response::makeErrorResponse(404);
 
@@ -105,9 +109,35 @@ Response RequestHandler::handleGET(const HTTPRequest &request) const {
 
 	struct stat st;
 	if (stat(fullPath.c_str(), &st) == 0) {
+		// Check if this is a CGI request
+		size_t extPos = path.find_last_of('.');
+		if (extPos != std::string::npos) {
+			std::string ext = path.substr(extPos);
+			std::cout << "Checking CGI extension: " << ext << std::endl;
+
+			// First check location's specific CGI handler
+			if (!location->cgi_path.empty()) {
+				std::cout << "Using location CGI handler: " << location->cgi_path << std::endl;
+				HTTPRequest req(request);
+				req.setConfig(&_config);
+				CGIHandler handler;
+				return handler.executeCGI(req, fullPath);
+			}
+
+			// Then check global CGI handlers
+			std::map<std::string, std::string>::const_iterator handlerIt = _config.cgi_handlers.find(ext);
+			if (handlerIt != _config.cgi_handlers.end()) {
+				std::cout << "Using global CGI handler: " << handlerIt->second << " for " << ext << std::endl;
+				HTTPRequest req(request);
+				req.setConfig(&_config);
+				CGIHandler handler;
+				return handler.executeCGI(req, fullPath);
+			}
+		}
+
 		if (S_ISDIR(st.st_mode)) {
 			if (location->autoindex)
-				return DirectoryHandler::handleDirectory(fullPath, *location, path);  // Pass the request path
+				return DirectoryHandler::handleDirectory(fullPath, *location, path);
 			std::string indexFile = findFirstExistingIndex(
 					fullPath,
 					location->index.empty() ? _config.index : location->index
@@ -135,10 +165,51 @@ Response RequestHandler::handlePOST(const HTTPRequest &request) const {
 		return Response::makeErrorResponse(405);
 
 	std::string contentType = request.getHeader("Content-Type");
-	if (contentType.find("multipart/form-data") == std::string::npos)
-		return Response::makeErrorResponse(415);
+	std::cout << "POST Content-Type: " << contentType << std::endl;
 
-	return FileHandler::handleFileUpload(request, *location);
+	// Check if this is a CGI request
+	std::string path = request.getPath();
+	std::string fullPath = FileHandler::constructFilePath(path, *location);
+
+	size_t extPos = path.find_last_of('.');
+	if (extPos != std::string::npos) {
+		std::string ext = path.substr(extPos);
+		std::cout << "Checking CGI extension: " << ext << std::endl;
+
+		// First check location's specific CGI handler
+		if (!location->cgi_path.empty()) {
+			std::cout << "Using location CGI handler: " << location->cgi_path << std::endl;
+			HTTPRequest req(request);
+			req.setConfig(&_config);
+			CGIHandler handler;
+			return handler.executeCGI(req, fullPath);
+		}
+
+		// Then check global CGI handlers
+		std::map<std::string, std::string>::const_iterator handlerIt = _config.cgi_handlers.find(ext);
+		if (handlerIt != _config.cgi_handlers.end()) {
+			std::cout << "Using global CGI handler: " << handlerIt->second << " for " << ext << std::endl;
+			HTTPRequest req(request);
+			req.setConfig(&_config);
+			CGIHandler handler;
+			return handler.executeCGI(req, fullPath);
+		}
+	}
+
+	// Handle file uploads if not CGI
+	if (contentType.find("multipart/form-data") != std::string::npos) {
+		return FileHandler::handleFileUpload(request, *location);
+	}
+
+	// Handle form submissions
+	if (contentType == "application/x-www-form-urlencoded") {
+		HTTPRequest req(request);
+		req.setConfig(&_config);
+		CGIHandler handler;
+		return handler.executeCGI(req, fullPath);
+	}
+
+	return Response::makeErrorResponse(400);
 }
 
 Response RequestHandler::handleDELETE(const HTTPRequest &request) const {
