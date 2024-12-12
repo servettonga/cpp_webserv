@@ -17,7 +17,6 @@
 #include <sys/stat.h>
 #include <cstring>
 #include <sstream>
-#include <iostream>
 
 RequestHandler::RequestHandler(const ServerConfig &config) : _config(config) {}
 
@@ -160,7 +159,6 @@ Response RequestHandler::handlePOST(const HTTPRequest &request) const {
 		return Response::makeErrorResponse(405);
 
 	std::string contentType = request.getHeader("Content-Type");
-	std::cout << "POST Content-Type: " << contentType << std::endl;
 
 	// Check if this is a CGI request
 	std::string path = request.getPath();
@@ -169,11 +167,9 @@ Response RequestHandler::handlePOST(const HTTPRequest &request) const {
 	size_t extPos = path.find_last_of('.');
 	if (extPos != std::string::npos) {
 		std::string ext = path.substr(extPos);
-		std::cout << "Checking CGI extension: " << ext << std::endl;
 
 		// First check location's specific CGI handler
 		if (!location->cgi_path.empty()) {
-			std::cout << "Using location CGI handler: " << location->cgi_path << std::endl;
 			HTTPRequest req(request);
 			req.setConfig(&_config);
 			CGIHandler handler;
@@ -182,7 +178,6 @@ Response RequestHandler::handlePOST(const HTTPRequest &request) const {
 		// Then fall back to global CGI handlers
 		std::map<std::string, std::string>::const_iterator handlerIt = _config.cgi_handlers.find(ext);
 		if (handlerIt != _config.cgi_handlers.end()) {
-			std::cout << "Using global CGI handler for " << ext << ": " << handlerIt->second << std::endl;
 			HTTPRequest req(request);
 			req.setConfig(&_config);
 			CGIHandler handler;
