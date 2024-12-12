@@ -31,6 +31,7 @@ class HTTPRequest {
 		const std::string &getVersion() const;
 		const std::string &getBody() const;
 		const std::map<std::string, std::string> &getHeaders() const;
+		bool isChunked() const;
 
 		// Header operations
 		bool hasHeader(const std::string &name) const;
@@ -44,6 +45,11 @@ class HTTPRequest {
 		std::map<std::string, std::string> _headers;
 		std::string _body;
 		const void *_config;
+
+		// Chunked transfer encoding
+		bool _isChunked;
+		std::string unchunkData(const std::string& chunkedData);
+		bool parseChunkedBody(const std::string& rawRequest, size_t bodyStart);
 
 		// Parsing helpers
 		bool parseRequestLine(const std::string &line);

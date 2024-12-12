@@ -32,18 +32,23 @@ bool HTTPRequest::parse(const std::string &rawRequest) {
 										headerEnd - (firstLineEnd + 2))))
 		return false;
 
-	// Handle body if Content-Length present
-	std::string contentLength = getHeader("Content-Length");
-	if (!contentLength.empty()) {
-		size_t bodyLength = std::atol(contentLength.c_str());
-		size_t bodyStart = headerEnd + 4;
+	// Check transfer encoding
+	std::string transferEncoding = getHeader("Transfer-Encoding");
+	_isChunked = (transferEncoding == "chunked");
 
-		if (rawRequest.length() < bodyStart + bodyLength)
-			return false;
-
-		_body = rawRequest.substr(bodyStart, bodyLength);
+	if (_isChunked) {
+		return parseChunkedBody(rawRequest, headerEnd + 4);
+	} else {
+		// Handle body if Content-Length present
+		std::string contentLength = getHeader("Content-Length");
+		if (!contentLength.empty()) {
+			size_t bodyLength = std::atol(contentLength.c_str());
+			size_t bodyStart = headerEnd + 4;
+			if (rawRequest.length() < bodyStart + bodyLength)
+				return false;
+			_body = rawRequest.substr(bodyStart, bodyLength);
+		}
 	}
-
 	return true;
 }
 
@@ -123,3 +128,40 @@ std::string HTTPRequest::getHeader(const std::string &name) const {
 void HTTPRequest::setConfig(const void *config) { _config = config; }
 
 const void *HTTPRequest::getConfig() const { return _config; }
+
+bool HTTPRequest::isChunked() const { return _isChunked; }
+
+std::string HTTPRequest::unchunkData(const std::string& chunkedData) {
+	std::string result;
+	size_t pos = 0;
+
+	while (pos < chunkedData.length()) {
+		// Find chunk size
+		size_t endOfSize = chunkedData.find("\r\n", pos);
+		if (endOfSize == std::string::npos)
+			throw std::runtime_error("Invalid chunk format");
+
+		// Parse chunk size (hex)
+		std::string sizeHex = chunkedData.substr(pos, endOfSize - pos);
+		std::istringstream iss(sizeHex);
+		size_t chunkSize;
+		iss >> std::hex >> chunkSize;
+		if (chunkSize == 0) // End of chunks
+			break;
+		pos = endOfSize + 2;	// Skip size line
+		result.append(chunkedData.substr(pos, chunkSize));	// Add chunk data to result
+		pos += chunkSize + 2;	// Skip chunk data and CRLF
+	}
+
+	return result;
+}
+
+bool HTTPRequest::parseChunkedBody(const std::string& rawRequest, size_t bodyStart) {
+	std::string chunkedData = rawRequest.substr(bodyStart);
+	try {
+		_body = unchunkData(chunkedData);
+		return true;
+	} catch (...) {
+		return false;
+	}
+}

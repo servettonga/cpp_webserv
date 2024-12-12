@@ -15,7 +15,7 @@
 #include <sstream>
 
 Response::Response(int statusCode, const std::string &serverName) :
-	_statusCode(statusCode) {
+	_statusCode(statusCode), _isChunked(false) {
 	_headers["Server"] = serverName;
 	_headers["Content-Type"] = "text/plain";
 }
@@ -51,11 +51,43 @@ std::string Response::toString() const {
 	// Headers
 	for (std::map<std::string, std::string>::const_iterator it = _headers.begin();
 		 it != _headers.end(); ++it) {
-		response << it->first << ": " << it->second << "\r\n";
+		// Skip debug header and Content-Length if chunked
+		if (it->first != "Executing CGI handler" &&
+			(!_isChunked || it->first != "Content-Length")) {
+			response << it->first << ": " << it->second << "\r\n";
+		}
 	}
 
-	// Empty line and body
-	response << "\r\n" << _body;
+	// Add Transfer-Encoding header if chunked
+	if (_isChunked)
+		response << "Transfer-Encoding: chunked\r\n";
+
+	response << "\r\n";
+
+	// Body
+	if (_isChunked) {
+		std::string chunk;
+		size_t pos = 0;
+		const size_t chunkSize = 1024; // 1KB chunks
+
+		while (pos < _body.length()) {
+			size_t len = std::min(chunkSize, _body.length() - pos);
+			chunk = _body.substr(pos, len);
+
+			// Write chunk size in hex
+			std::stringstream hexLen;
+			hexLen << std::hex << chunk.length();
+			response << hexLen.str() << "\r\n";
+
+			// Write chunk data
+			response << chunk << "\r\n";
+			pos += len;
+		}
+		// Write final chunk
+		response << "0\r\n\r\n";
+	} else {
+		response << _body;
+	}
 
 	return response.str();
 }
@@ -157,3 +189,7 @@ Response Response::makeErrorResponse(int statusCode) {
         response.setBody(body);
         return response;
 }
+
+void Response::setChunked(bool chunked) { _isChunked = chunked; }
+
+bool Response::isChunked() const { return _isChunked; }

@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 13:04:01 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/05 10:59:35 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/12 18:36:11 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -167,6 +167,20 @@ void Server::processCompleteRequests(int clientFd, ClientState& client) {
 	size_t headerEnd = client.requestBuffer.find("\r\n\r\n");
 	if (headerEnd == std::string::npos)
 		return;
+
+	std::string transferEncoding;
+	size_t tePos = client.requestBuffer.find("Transfer-Encoding: ");
+	if (tePos != std::string::npos && tePos < headerEnd) {
+		size_t teEnd = client.requestBuffer.find("\r\n", tePos);
+		if (teEnd != std::string::npos)
+			transferEncoding = client.requestBuffer.substr(tePos + 19, teEnd - (tePos + 19));
+	}
+
+	if (transferEncoding == "chunked") {
+		// Look for the final chunk (0\r\n\r\n)
+		if (client.requestBuffer.find("0\r\n\r\n", headerEnd) == std::string::npos)
+			return; // Not all chunks received yet
+	}
 
 	size_t firstSpace = client.requestBuffer.find(" ");
 	if (firstSpace == std::string::npos) {

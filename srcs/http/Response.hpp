@@ -22,6 +22,7 @@ class Response {
 		int _statusCode;
 		std::map<std::string, std::string> _headers;
 		std::string _body;
+		bool _isChunked;
 
 		// Helper methods
 		void updateContentLength();
@@ -36,6 +37,8 @@ class Response {
 		void addHeader(const std::string &name, const std::string &value);
 		static Response makeErrorResponse(int statusCode);
 		std::string toString() const;
+		void setChunked(bool chunked);
+		bool isChunked() const;
 };
 
 #endif

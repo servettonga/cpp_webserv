@@ -97,7 +97,6 @@ Response CGIHandler::handleChildProcess(const HTTPRequest &request, const std::s
 	std::map<std::string, std::string>::const_iterator handlerIt = config->cgi_handlers.find(ext);
 	if (handlerIt != config->cgi_handlers.end()) {
 		std::string handler = handlerIt->second;
-		std::cout << "Executing CGI handler: " << handler << " for " << scriptPath << std::endl;
 
 		if (ext == ".php") {
 			char **argv = new char*[3];
@@ -254,12 +253,10 @@ void CGIHandler::writeToPipe(int fd, const std::string &data) {
 }
 
 void CGIHandler::parseOutput(const std::string &output, Response &response) {
-	// Find the end of headers (double newline)
 	size_t headerEnd = output.find("\r\n\r\n");
 	if (headerEnd == std::string::npos) {
 		headerEnd = output.find("\n\n");
 		if (headerEnd == std::string::npos) {
-			// No headers found, treat the entire output as body
 			response.setBody(output);
 			return;
 		}
@@ -270,12 +267,14 @@ void CGIHandler::parseOutput(const std::string &output, Response &response) {
 	std::istringstream headerStream(headers);
 	std::string line;
 
+	bool isChunked = false;
+	std::string contentLength;
+
 	while (std::getline(headerStream, line)) {
 		if (!line.empty() && line[line.length()-1] == '\r')
 			line = line.substr(0, line.length()-1);
 		if (line.empty()) continue;
 
-		// Split header into name and value
 		size_t colonPos = line.find(':');
 		if (colonPos != std::string::npos) {
 			std::string name = line.substr(0, colonPos);
@@ -284,12 +283,26 @@ void CGIHandler::parseOutput(const std::string &output, Response &response) {
 			while (!value.empty() && isspace(value[0]))
 				value = value.substr(1);
 
-			response.addHeader(name, value);
+			// Handle special headers
+			if (name == "Transfer-Encoding") {
+				if (value == "chunked")
+					isChunked = true;
+			} else if (name == "Content-Length")
+				contentLength = value;
+			else
+				response.addHeader(name, value);
 		}
 	}
 
-	// Set body (skip headers and the separating newlines)
+	// Set body and chunked status
 	size_t bodyStart = headerEnd + (output.substr(headerEnd).find("\n") + 1);
 	std::string body = output.substr(bodyStart);
+
+	// If no Content-Length and not chunked, use chunked encoding
+	if (contentLength.empty() && !isChunked)
+		response.setChunked(true);
+	else
+		response.setChunked(isChunked);
+
 	response.setBody(body);
 }
