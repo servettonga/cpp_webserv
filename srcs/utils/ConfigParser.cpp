@@ -20,8 +20,7 @@
 #include <iostream>
 #include <fstream>
 
-ConfigParser::ConfigParser(const std::string &configPath): _configPath(configPath) , _currentLine(0) {
-}
+ConfigParser::ConfigParser(const std::string &configPath): _configPath(configPath) , _currentLine(0) {}
 
 ConfigParser::~ConfigParser() {}
 
@@ -195,17 +194,11 @@ void ConfigParser::parseLocation(LocationConfig &location) {
 }
 
 void ConfigParser::parseCGI(ServerConfig &server) {
-	if (!hasMoreLines()) {
-		addError("Unexpected end of file in CGI block");
-		return;
-	}
-
-	std::string line = getCurrentLine();
 	++_currentLine;
 
 	while (hasMoreLines()) {
 		skipWhitespace();
-		line = getCurrentLine();
+		std::string line = getCurrentLine();
 
 		if (isBlockEnd(line)) {
 			++_currentLine;
@@ -213,10 +206,14 @@ void ConfigParser::parseCGI(ServerConfig &server) {
 		}
 
 		std::pair<std::string, std::string> directive = splitDirective(line);
-		std::string value = directive.second;
-		if (!value.empty() && value[value.length()-1] == ';')
-			value = value.substr(0, value.length()-1);
-		server.cgi_handlers[directive.first] = value;
+		std::string ext = directive.first;
+		std::string handler = directive.second;
+
+		if (ext[0] != '.')
+			ext = "." + ext;
+		if (!handler.empty() && handler[handler.length()-1] == ';')
+			handler = handler.substr(0, handler.length()-1);
+		server.cgi_handlers[ext] = handler;
 		++_currentLine;
 	}
 }
@@ -344,9 +341,7 @@ bool ConfigParser::validateCGI(const ServerConfig &config) const {
 
 			if (!found)
 				return false;
-		}
-			// Direct path
-		else {
+		} else {
 			struct stat st;
 			if (stat(handler.c_str(), &st) != 0 || !(st.st_mode  &S_IXUSR))
 				return false;

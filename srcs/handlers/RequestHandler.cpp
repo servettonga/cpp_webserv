@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 20:05:44 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/10 23:57:31 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/12 13:12:26 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -113,21 +113,16 @@ Response RequestHandler::handleGET(const HTTPRequest &request) const {
 		size_t extPos = path.find_last_of('.');
 		if (extPos != std::string::npos) {
 			std::string ext = path.substr(extPos);
-			std::cout << "Checking CGI extension: " << ext << std::endl;
-
-			// First check location's specific CGI handler
-			if (!location->cgi_path.empty()) {
-				std::cout << "Using location CGI handler: " << location->cgi_path << std::endl;
+			// First check global CGI handlers
+			std::map<std::string, std::string>::const_iterator handlerIt = _config.cgi_handlers.find(ext);
+			if (handlerIt != _config.cgi_handlers.end()) {
 				HTTPRequest req(request);
 				req.setConfig(&_config);
 				CGIHandler handler;
 				return handler.executeCGI(req, fullPath);
 			}
-
-			// Then check global CGI handlers
-			std::map<std::string, std::string>::const_iterator handlerIt = _config.cgi_handlers.find(ext);
-			if (handlerIt != _config.cgi_handlers.end()) {
-				std::cout << "Using global CGI handler: " << handlerIt->second << " for " << ext << std::endl;
+			// Then check location's specific CGI handler
+			if (!location->cgi_path.empty()) {
 				HTTPRequest req(request);
 				req.setConfig(&_config);
 				CGIHandler handler;
@@ -184,21 +179,15 @@ Response RequestHandler::handlePOST(const HTTPRequest &request) const {
 			CGIHandler handler;
 			return handler.executeCGI(req, fullPath);
 		}
-
-		// Then check global CGI handlers
+		// Then fall back to global CGI handlers
 		std::map<std::string, std::string>::const_iterator handlerIt = _config.cgi_handlers.find(ext);
 		if (handlerIt != _config.cgi_handlers.end()) {
-			std::cout << "Using global CGI handler: " << handlerIt->second << " for " << ext << std::endl;
+			std::cout << "Using global CGI handler for " << ext << ": " << handlerIt->second << std::endl;
 			HTTPRequest req(request);
 			req.setConfig(&_config);
 			CGIHandler handler;
 			return handler.executeCGI(req, fullPath);
 		}
-	}
-
-	// Handle file uploads if not CGI
-	if (contentType.find("multipart/form-data") != std::string::npos) {
-		return FileHandler::handleFileUpload(request, *location);
 	}
 
 	// Handle form submissions
@@ -208,6 +197,10 @@ Response RequestHandler::handlePOST(const HTTPRequest &request) const {
 		CGIHandler handler;
 		return handler.executeCGI(req, fullPath);
 	}
+
+	// Handle file uploads
+	if (contentType.find("multipart/form-data") != std::string::npos)
+		return FileHandler::handleFileUpload(request, *location);
 
 	return Response::makeErrorResponse(400);
 }

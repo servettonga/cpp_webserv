@@ -84,17 +84,62 @@ Response CGIHandler::handleChildProcess(const HTTPRequest &request, const std::s
 	close(inputPipe[0]);
 	close(outputPipe[1]);
 
-	if (scriptPath.find(".py") != std::string::npos) {
-		execle("/usr/bin/python3", "python3", scriptPath.c_str(), NULL, env);
-	} else {
-		const ServerConfig* config = static_cast<const ServerConfig*>(request.getConfig());
-		const LocationConfig* location = config->getLocation(request.getPath());
-		if (location && !location->cgi_path.empty()) {
-			execle(location->cgi_path.c_str(), location->cgi_path.c_str(), scriptPath.c_str(), NULL, env);
+	// Get file extension and handler
+	size_t extPos = scriptPath.find_last_of('.');
+	std::string ext = scriptPath.substr(extPos);
+
+	const ServerConfig* config = static_cast<const ServerConfig*>(request.getConfig());
+	if (!config) {
+		std::cerr << "No server config" << std::endl;
+		exit(1);
+	}
+
+	std::map<std::string, std::string>::const_iterator handlerIt = config->cgi_handlers.find(ext);
+	if (handlerIt != config->cgi_handlers.end()) {
+		std::string handler = handlerIt->second;
+		std::cout << "Executing CGI handler: " << handler << " for " << scriptPath << std::endl;
+
+		if (ext == ".php") {
+			char **argv = new char*[3];
+			argv[0] = strdup("/usr/bin/php-cgi");  // Full path to php-cgi
+			argv[1] = strdup(scriptPath.c_str());
+			argv[2] = NULL;
+
+			// Add PHP-specific environment variables
+			setenv("REDIRECT_STATUS", "200", 1);
+			setenv("SCRIPT_FILENAME", scriptPath.c_str(), 1);
+			setenv("REQUEST_METHOD", request.getMethod().c_str(), 1);
+			setenv("QUERY_STRING", "", 1);
+
+			execve(argv[0], argv, env);
+
+			// Clean up if execve fails
+			std::cerr << "PHP-CGI execve failed: " << strerror(errno) << std::endl;
+			free(argv[0]);
+			free(argv[1]);
+			delete[] argv;
+		} else {
+			std::vector<std::string> args;
+			std::istringstream iss(handler);
+			std::string part;
+			while (iss >> part)
+				args.push_back(part);
+			args.push_back(scriptPath);
+
+			char **argv = new char*[args.size() + 1];
+			for (size_t i = 0; i < args.size(); ++i)
+				argv[i] = strdup(args[i].c_str());
+			argv[args.size()] = NULL;
+
+			execve(argv[0], argv, env);
+
+			for (size_t i = 0; argv[i]; ++i)
+				free(argv[i]);
+			delete[] argv;
 		}
 	}
 
-	std::cerr << "Execle failed: " << strerror(errno) << std::endl;
+	std::cerr << "No handler found for extension: " << ext << std::endl;
 	exit(1);
 }
 
@@ -130,13 +175,15 @@ void CGIHandler::setupEnvironment(const HTTPRequest &request, const std::string 
 	_envMap["SERVER_PROTOCOL"] = "HTTP/1.1";
 	_envMap["REQUEST_METHOD"] = request.getMethod();
 	_envMap["SCRIPT_FILENAME"] = scriptPath;
+	_envMap["REDIRECT_STATUS"] = "200";  // Required for PHP
 	_envMap["PATH_INFO"] = request.getPath();
 	_envMap["PATH"] = "/usr/local/bin:/usr/bin:/bin";
 
-	// Query string
-	std::string path = request.getPath();
-	size_t pos = path.find("?");
-	_envMap["QUERY_STRING"] = (pos != std::string::npos) ? path.substr(pos + 1) : "";
+	// PHP-specific variables
+	_envMap["PHP_SELF"] = request.getPath();
+	_envMap["SCRIPT_NAME"] = request.getPath();
+	_envMap["REQUEST_URI"] = request.getPath();
+	_envMap["DOCUMENT_ROOT"] = "www";
 
 	// Content info
 	_envMap["CONTENT_LENGTH"] = Utils::numToString(request.getBody().length());

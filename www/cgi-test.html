@@ -6,16 +6,51 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
+        :root {
+            /* Light theme */
+            --bg-color: #ffffff;
+            --text-color: #212529;
+            --card-bg: #ffffff;
+            --border-color: #dee2e6;
+            --primary-color: #0d6efd;
+            --hover-bg: rgba(13, 110, 253, 0.05);
+            --response-bg: #f8f9fa;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            transition: all 0.3s ease;
+        }
+
         .response-container {
             display: none;
             margin-top: 20px;
             padding: 20px;
             border-radius: 5px;
-            background-color: #f8f9fa;
+            background-color: var(--response-bg);
+            border: 1px solid var(--border-color);
         }
+
         .loading {
             display: none;
             margin: 20px 0;
+        }
+
+        .nav-tabs .nav-link.active {
+            font-weight: 500;
+        }
+
+        .card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+        }
+
+        #response {
+            background-color: var(--response-bg);
+            padding: 1rem;
+            border-radius: 0.375rem;
+            border: 1px solid var(--border-color);
         }
     </style>
 </head>
@@ -28,17 +63,48 @@
                     <h1 class="h4 mb-0">CGI Test Form</h1>
                 </div>
                 <div class="card-body">
-                    <form id="cgiForm" action="/cgi-bin/test.py" method="POST">
-                        <div class="mb-3">
-                            <label for="name" class="form-label">Name:</label>
-                            <input type="text" class="form-control" id="name" name="name" required>
+                    <ul class="nav nav-tabs mb-4" id="scriptType" role="tablist">
+                        <li class="nav-item">
+                            <a class="nav-link active" id="python-tab" data-bs-toggle="tab" href="#python" role="tab">
+                                Python CGI
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" id="php-tab" data-bs-toggle="tab" href="#php" role="tab">
+                                PHP CGI
+                            </a>
+                        </li>
+                    </ul>
+
+                    <div class="tab-content">
+                        <div class="tab-pane fade show active" id="python" role="tabpanel">
+                            <form id="pythonForm" action="/cgi-bin/test.py" method="POST" class="cgi-form">
+                                <div class="mb-3">
+                                    <label for="pythonName" class="form-label">Name:</label>
+                                    <input type="text" class="form-control" id="pythonName" name="name" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="pythonMessage" class="form-label">Message:</label>
+                                    <textarea class="form-control" id="pythonMessage" name="message" rows="3" required></textarea>
+                                </div>
+                                <button type="submit" class="btn btn-primary">Submit Python</button>
+                            </form>
                         </div>
-                        <div class="mb-3">
-                            <label for="message" class="form-label">Message:</label>
-                            <textarea class="form-control" id="message" name="message" rows="3" required></textarea>
+
+                        <div class="tab-pane fade" id="php" role="tabpanel">
+                            <form id="phpForm" action="/cgi-bin/test.php" method="POST" class="cgi-form">
+                                <div class="mb-3">
+                                    <label for="phpName" class="form-label">Name:</label>
+                                    <input type="text" class="form-control" id="phpName" name="name" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="phpMessage" class="form-label">Message:</label>
+                                    <textarea class="form-control" id="phpMessage" name="message" rows="3" required></textarea>
+                                </div>
+                                <button type="submit" class="btn btn-primary">Submit PHP</button>
+                            </form>
                         </div>
-                        <button type="submit" class="btn btn-primary">Submit</button>
-                    </form>
+                    </div>
 
                     <div class="loading text-center">
                         <div class="spinner-border text-primary" role="status">
@@ -56,44 +122,42 @@
     </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-    document.getElementById('cgiForm').addEventListener('submit', async function(e) {
-        e.preventDefault();
+    document.querySelectorAll('.cgi-form').forEach(form => {
+        form.addEventListener('submit', async function(e) {
+            e.preventDefault();
 
-        const form = e.target;
-        const loading = document.querySelector('.loading');
-        const responseContainer = document.querySelector('.response-container');
-        const responseDiv = document.getElementById('response');
+            const loading = document.querySelector('.loading');
+            const responseContainer = document.querySelector('.response-container');
+            const responseDiv = document.getElementById('response');
 
-        // Show loading
-        loading.style.display = 'block';
-        responseContainer.style.display = 'none';
+            loading.style.display = 'block';
+            responseContainer.style.display = 'none';
 
-        try {
-            const formData = new URLSearchParams(new FormData(form));
+            try {
+                const formData = new URLSearchParams(new FormData(form));
 
-            const response = await fetch(form.action, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded'
-                },
-                body: formData.toString()
-            });
+                const response = await fetch(form.action, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: formData.toString()
+                });
 
-            const text = await response.text();
+                const text = await response.text();
 
-            // Show response
-            responseDiv.innerHTML = text;
-            responseContainer.style.display = 'block';
-        } catch (error) {
-            responseDiv.innerHTML = `<div class="alert alert-danger">Error: ${error.message}</div>`;
-            responseContainer.style.display = 'block';
-        } finally {
-            loading.style.display = 'none';
-        }
+                responseDiv.innerHTML = text;
+                responseContainer.style.display = 'block';
+            } catch (error) {
+                responseDiv.innerHTML = `<div class="alert alert-danger">Error: ${error.message}</div>`;
+                responseContainer.style.display = 'block';
+            } finally {
+                loading.style.display = 'none';
+            }
+        });
     });
 </script>
-
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
