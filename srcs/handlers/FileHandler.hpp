@@ -27,9 +27,7 @@ class FileHandler {
 			FileData() : isValid(false) {}
 		};
 
-		static bool isValidFilePath(const std::string &path);
 		static std::string extractBoundary(const std::string &contentType);
-
 		static FileData parseMultipartData(const std::string &body, const std::string &boundary);
 		static std::string constructUploadPath(const LocationConfig &loc, const std::string &filename);
 		static bool saveUploadedFile(const std::string &filepath, const std::string &content);
@@ -40,6 +38,7 @@ class FileHandler {
 		static Response handleFileDelete(const HTTPRequest &request, const LocationConfig &loc);
 
 		static std::string constructFilePath(const std::string &uri, const LocationConfig &loc);
+		static bool isValidFilePath(const std::string &path);
 		static std::string sanitizeFilename(const std::string &filename);
 		static bool validatePath(const std::string &path);
 		static std::string urlDecode(const std::string &encoded);

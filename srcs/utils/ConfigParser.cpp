@@ -6,7 +6,7 @@
 /*   By: jdepka <jdepka@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 13:04:01 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/11 13:54:44 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/12 19:37:19 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -278,28 +278,36 @@ void ConfigParser::addError(const std::string &error) {
 
 bool ConfigParser::validatePaths(const ServerConfig &config) const {
 	struct stat st;
-	std::string rootPath = config.root;
+	std::vector<std::string> pathsToCheck;
 
-	if (stat(rootPath.c_str(), &st) != 0) {
-		std::string cmd = "mkdir -p " + rootPath;
-		if (system(cmd.c_str()) != 0)
-			return false;
-	}
-
-	// Don't strictly validate location paths - they'll be created if needed
+	// Add server to the root path
+	if (!config.root.empty())
+		pathsToCheck.push_back(config.root);
+	// Add location paths
 	for (std::vector<LocationConfig>::const_iterator it = config.locations.begin();
 		 it != config.locations.end(); ++it) {
-		std::string locPath = it->root;
-		if (!locPath.empty() && locPath[locPath.length()-1] == ';')
-			locPath = locPath.substr(0, locPath.length()-1);
-
-		if (stat(locPath.c_str(), &st) != 0) {
-			std::string cmd = "mkdir -p " + locPath;
-			if (system(cmd.c_str()) != 0)
-				return false;
+		if (!it->root.empty()) {
+			std::string locPath = it->root;
+			if (!locPath.empty() && locPath[locPath.length()-1] == ';')
+				locPath = locPath.substr(0, locPath.length()-1);
+			if (locPath.substr(0, 2) == "./")
+				locPath = locPath.substr(2);
+			pathsToCheck.push_back(locPath);
 		}
 	}
-
+	// Validate each path
+	for (std::vector<std::string>::const_iterator it = pathsToCheck.begin();
+		 it != pathsToCheck.end(); ++it) {
+		if (stat(it->c_str(), &st) != 0) {
+			std::string cmd = "mkdir -p \"" + *it + "\"";
+			int result = system(cmd.c_str());
+			if (result != 0) {
+				std::cerr << "Failed to create directory: " << *it << std::endl;
+				return false;
+			}
+			std::cout << "Created directory: " << *it << std::endl;
+		}
+	}
 	return true;
 }
 

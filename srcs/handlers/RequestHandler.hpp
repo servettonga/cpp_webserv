@@ -22,6 +22,7 @@ class RequestHandler {
 		Response handleGET(const HTTPRequest &request) const;
 		Response handlePOST(const HTTPRequest &request) const;
 		Response handleDELETE(const HTTPRequest &request) const;
+		Response handlePUT(const HTTPRequest &request) const;
 
 		const LocationConfig *getLocation(const std::string &uri) const;
 		bool isMethodAllowed(const std::string &method, const LocationConfig &loc) const;

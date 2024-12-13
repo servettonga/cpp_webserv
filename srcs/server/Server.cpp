@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 13:04:01 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/12 18:36:11 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/13 18:49:23 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -138,7 +138,7 @@ bool Server::validateContentLength(const std::string& requestBuffer, size_t head
 	return true;
 }
 
-void Server::handlePostRequest(int clientFd, ClientState& client, size_t headerEnd) {
+void Server::handlePostRequest(int clientFd, ClientState &client, size_t headerEnd) {
 	const LocationConfig* location = _config.getLocation(
 			client.requestBuffer.substr(
 					client.requestBuffer.find(" ") + 1,
@@ -163,7 +163,7 @@ void Server::handlePostRequest(int clientFd, ClientState& client, size_t headerE
 	// If not complete, wait for more data
 }
 
-void Server::processCompleteRequests(int clientFd, ClientState& client) {
+void Server::processCompleteRequests(int clientFd, ClientState &client) {
 	size_t headerEnd = client.requestBuffer.find("\r\n\r\n");
 	if (headerEnd == std::string::npos)
 		return;
@@ -209,7 +209,7 @@ void Server::processCompleteRequests(int clientFd, ClientState& client) {
 
 	if (method == "POST") {
 		handlePostRequest(clientFd, client, headerEnd);
-	} else if (method == "GET" || method == "DELETE") {
+	} else if (method == "GET" || method == "DELETE" || method == "PUT") {
 		processRequest(clientFd, client);
 		client.requestBuffer.clear();
 	} else {

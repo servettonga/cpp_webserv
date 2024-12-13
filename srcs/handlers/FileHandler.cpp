@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/11/29 20:09:27 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/11 13:14:10 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/12 23:27:47 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -15,6 +15,8 @@
 #include <sstream>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <iostream>
+#include <dirent.h>
 
 Response FileHandler::serveFile(const std::string &path, const std::string &urlPath) {
 	if (!isValidFilePath(path))
@@ -130,7 +132,9 @@ Response FileHandler::handleFileDelete(const HTTPRequest &request, const Locatio
 }
 
 bool FileHandler::validatePath(const std::string &path) {
-	return path.find("..") == std::string::npos;
+	if (path.find("..") != std::string::npos || path.find("//") != std::string::npos)
+		return false;
+	return true;
 }
 
 std::string FileHandler::urlDecode(const std::string &encoded) {
@@ -168,39 +172,34 @@ std::string FileHandler::constructFilePath(const std::string &uri, const Locatio
 	std::string decodedUri = urlDecode(uri);
 	std::string path = location.root;
 
-	if (decodedUri == location.path) {
-		if (location.path != "/") {
-			std::string locationPath = location.path;
-			if (locationPath[0] == '/') {
-				locationPath = locationPath.substr(1);
-			}
-			if (!path.empty() && path[path.length()-1] != '/') {
-				path += '/';
-			}
-			path += locationPath;
-		}
-		return path;
+	if (!path.empty() && path[path.length()-1] == '/')
+		path = path.substr(0, path.length()-1);
+
+	// For non-root locations, append the location path only for /static-like locations
+	if (location.path != "/" && !location.path.empty() && location.root == "www") {
+		std::string locationPath = location.path;
+		if (locationPath[0] == '/')
+			locationPath = locationPath.substr(1);
+		if (!path.empty() && path[path.length()-1] != '/')
+			path += '/';
+		path += locationPath;
 	}
-
+	// Get the relative path
 	std::string relativePath;
-	if (decodedUri.find(location.path) == 0)
-		relativePath = decodedUri.substr(location.path.length());
-	else
-		relativePath = decodedUri;
-
-	if (!relativePath.empty() && relativePath[0] == '/')
-		relativePath = relativePath.substr(1);
-	if (!path.empty() && path[path.length()-1] != '/')
-		path += '/';
-	if (location.path == "/")
-		return path + relativePath;
-	std::string locationPath = location.path;
-	if (locationPath[0] == '/')
-		locationPath = locationPath.substr(1);
-	if (path.find(locationPath) == std::string::npos)
-		path += locationPath + "/";
-
-	return path + relativePath;
+	if (decodedUri.find(location.path) == 0) {
+		if (decodedUri != location.path) {
+			relativePath = decodedUri.substr(location.path.length());
+			if (!relativePath.empty() && relativePath[0] == '/')
+				relativePath = relativePath.substr(1);
+		}
+	}
+	// Add the relative path if exists
+	if (!relativePath.empty()) {
+		if (!path.empty() && path[path.length()-1] != '/')
+			path += '/';
+		path += relativePath;
+	}
+	return path;
 }
 
 bool FileHandler::isValidFilePath(const std::string &path) {

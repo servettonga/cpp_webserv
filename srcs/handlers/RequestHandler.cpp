@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 20:05:44 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/12 13:12:26 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/13 12:58:37 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -48,13 +48,14 @@ Response RequestHandler::handleRequest(const HTTPRequest &request) {
 		error.setBody("<html><body><h1>Method Not Allowed</h1></body></html>");
 		return error;
 	}
-
 	if (req.getMethod() == "GET")
 		return handleGET(request);
 	else if (req.getMethod() == "POST")
 		return handlePOST(request);
 	else if (req.getMethod() == "DELETE")
 		return handleDELETE(request);
+	else if (req.getMethod() == "PUT")
+		return handlePUT(request);
 
 	return Response::makeErrorResponse(501);
 }
@@ -104,8 +105,16 @@ Response RequestHandler::handleGET(const HTTPRequest &request) const {
 	if (!location)
 		return Response::makeErrorResponse(404);
 
-	std::string fullPath = FileHandler::constructFilePath(path, *location);
+	// Try the index file first for root location requests
+	if (path == location->path) {
+		std::string indexPath = location->root + "/" + location->index;
+		struct stat st;
+		if (stat(indexPath.c_str(), &st) == 0 && !S_ISDIR(st.st_mode))
+			return FileHandler::serveFile(indexPath, path + "/" + location->index);
+	}
 
+	// If no index or not root request, construct the full path
+	std::string fullPath = FileHandler::constructFilePath(path, *location);
 	struct stat st;
 	if (stat(fullPath.c_str(), &st) == 0) {
 		// Check if this is a CGI request
@@ -128,7 +137,6 @@ Response RequestHandler::handleGET(const HTTPRequest &request) const {
 				return handler.executeCGI(req, fullPath);
 			}
 		}
-
 		if (S_ISDIR(st.st_mode)) {
 			if (location->autoindex)
 				return DirectoryHandler::handleDirectory(fullPath, *location, path);
@@ -139,11 +147,10 @@ Response RequestHandler::handleGET(const HTTPRequest &request) const {
 			if (!indexFile.empty())
 				return FileHandler::serveFile(indexFile, path + "/" +
 														 indexFile.substr(indexFile.find_last_of('/') + 1));
-			return Response::makeErrorResponse(403);
+			return Response::makeErrorResponse(404);
 		}
 		return FileHandler::serveFile(fullPath, path);
 	}
-
 	return Response::makeErrorResponse(404);
 }
 
@@ -224,4 +231,13 @@ std::string RequestHandler::findFirstExistingIndex(const std::string& dirPath, c
 			return fullPath;
 	}
 	return "";
+}
+
+Response RequestHandler::handlePUT(const HTTPRequest &request) const {
+	// Just return OK without saving
+	(void)request;
+	Response response(200);
+	response.addHeader("Content-Type", "text/plain");
+	response.setBody("OK");
+	return response;
 }
