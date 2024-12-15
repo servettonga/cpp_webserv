@@ -17,41 +17,44 @@
 #include <map>
 #include "../http/HTTPRequest.hpp"
 #include "../http/Response.hpp"
+#include "../utils/Logger.hpp"
 #include <unistd.h>
 #include <cstring>
 #include <sys/wait.h>
 #include <cstdlib>
 #include <cerrno>
 
+#define BUFFER_SIZE (1024 * 1024)
+
 class CGIHandler {
+	private:
+		static Logger &_logger;
+		std::map<std::string, std::string> _envMap;
+		std::string _cwd;
+		std::string _tmpPath;
+
+		struct TempFiles {
+			FILE* inFile;
+			FILE* outFile;
+			int inFd;
+			int outFd;
+			TempFiles() : inFile(NULL), outFile(NULL), inFd(-1), outFd(-1) {}
+		};
+
+		void setupEnvironment(const HTTPRequest& request, const std::string& scriptPath);
+		void cleanupTempFiles(const TempFiles& files);
+		char** createEnvArray();
+		bool handleTimeout(pid_t pid);
+		Response handleCGIOutput(const TempFiles& files);
+		Response createErrorResponse(int code, const std::string& message);
+
 	public:
-		// Constructor and Destructor
 		CGIHandler();
 		~CGIHandler();
+		Response executeCGI(const HTTPRequest& request,
+							const std::string& cgiPath,
+							const std::string& scriptPath);
 
-		// Main execution method
-		Response executeCGI(const HTTPRequest &request, const std::string &scriptPath);
-
-	private:
-		// Environment variables
-		std::map<std::string, std::string> _envMap;
-		std::string _workingDir;
-		std::string _scriptPath;
-		std::string _pathInfo;
-
-		// Helper methods
-		bool createPipes(int inputPipe[2], int outputPipe[2]);
-		void cleanupPipes(int inputPipe[2], int outputPipe[2]);
-		Response handleChildProcess(const HTTPRequest &request, const std::string &scriptPath,
-									int inputPipe[2], int outputPipe[2], char **env);
-		Response handleParentProcess(pid_t pid, const HTTPRequest &request,
-									 int inputPipe[2], int outputPipe[2], char **env);
-		void setupEnvironment(const HTTPRequest &request, const std::string &scriptPath);
-		char** createEnvArray();
-		void freeEnvArray(char** env);
-		std::string readFromPipe(int fd);
-		void writeToPipe(int fd, const std::string &data);
-		void parseOutput(const std::string &output, Response &response);
 };
 
 #endif

@@ -31,11 +31,14 @@ class HTTPRequest {
 		const std::string &getVersion() const;
 		const std::string &getBody() const;
 		const std::map<std::string, std::string> &getHeaders() const;
+		void setTempFilePath(const std::string& path);
+		const std::string &getTempFilePath() const;
 		bool isChunked() const;
 
 		// Header operations
 		bool hasHeader(const std::string &name) const;
 		std::string getHeader(const std::string &name) const;
+
 
 	private:
 		// Request components
@@ -45,6 +48,7 @@ class HTTPRequest {
 		std::map<std::string, std::string> _headers;
 		std::string _body;
 		const void *_config;
+		std::string _tempFilePath;
 
 		// Chunked transfer encoding
 		bool _isChunked;

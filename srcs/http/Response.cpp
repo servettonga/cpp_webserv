@@ -15,7 +15,7 @@
 #include <sstream>
 
 Response::Response(int statusCode, const std::string &serverName) :
-	_statusCode(statusCode), _isChunked(false) {
+	_statusCode(statusCode), _isChunked(false), _isRawOutput(false) {
 	_headers["Server"] = serverName;
 	_headers["Content-Type"] = "text/plain";
 }
@@ -43,53 +43,26 @@ void Response::updateContentLength() {
 }
 
 std::string Response::toString() const {
-	std::stringstream response;
+	if (_isRawOutput)
+		return _rawOutput;
+	std::string response = "HTTP/1.1 " +
+						   Utils::numToString(_statusCode) + " " +
+						   getStatusText() + "\r\n";
 
-	// Status line
-	response << "HTTP/1.1 " << _statusCode << " " << getStatusText() << "\r\n";
+	// Add Content-Length for all responses
+	response += "Content-Length: " + Utils::numToString(_body.length()) + "\r\n";
 
-	// Headers
+	// Add other headers
 	for (std::map<std::string, std::string>::const_iterator it = _headers.begin();
 		 it != _headers.end(); ++it) {
-		// Skip debug header and Content-Length if chunked
-		if (it->first != "Executing CGI handler" &&
-			(!_isChunked || it->first != "Content-Length")) {
-			response << it->first << ": " << it->second << "\r\n";
+		if (it->first != "Content-Length") { // Skip if we already added it
+			response += it->first + ": " + it->second + "\r\n";
 		}
 	}
 
-	// Add Transfer-Encoding header if chunked
-	if (_isChunked)
-		response << "Transfer-Encoding: chunked\r\n";
-
-	response << "\r\n";
-
-	// Body
-	if (_isChunked) {
-		std::string chunk;
-		size_t pos = 0;
-		const size_t chunkSize = 1024; // 1KB chunks
-
-		while (pos < _body.length()) {
-			size_t len = std::min(chunkSize, _body.length() - pos);
-			chunk = _body.substr(pos, len);
-
-			// Write chunk size in hex
-			std::stringstream hexLen;
-			hexLen << std::hex << chunk.length();
-			response << hexLen.str() << "\r\n";
-
-			// Write chunk data
-			response << chunk << "\r\n";
-			pos += len;
-		}
-		// Write final chunk
-		response << "0\r\n\r\n";
-	} else {
-		response << _body;
-	}
-
-	return response.str();
+	response += "\r\n";
+	response += _body;
+	return response;
 }
 
 std::string Response::getStatusText() const {
@@ -193,3 +166,26 @@ Response Response::makeErrorResponse(int statusCode) {
 void Response::setChunked(bool chunked) { _isChunked = chunked; }
 
 bool Response::isChunked() const { return _isChunked; }
+
+void Response::setRawOutput(const std::string &output) {
+	_isRawOutput = true;
+	_rawOutput = output;
+}
+
+bool Response::hasHeader(const char *string) {
+	for (std::map<std::string, std::string>::const_iterator it = _headers.begin();
+		 it != _headers.end(); ++it) {
+		if (it->first == string)
+			return true;
+	}
+	return false;
+}
+
+std::string Response::getBody() { return _body; }
+
+std::string Response::getHeader(const char *name) {
+	std::map<std::string, std::string>::const_iterator it = _headers.find(name);
+	return it != _headers.end() ? it->second : "";
+}
+
+std::map<std::string, std::string> Response::getHeaders() { return _headers; }

@@ -169,6 +169,10 @@ std::string FileHandler::sanitizeFilename(const std::string &filename) {
 }
 
 std::string FileHandler::constructFilePath(const std::string &uri, const LocationConfig &location) {
+	std::cout << "\nPath Construction:" << std::endl;
+	std::cout << "URI: " << uri << std::endl;
+	std::cout << "Location path: " << location.path << std::endl;
+	std::cout << "Location root: " << location.root << std::endl;
 	std::string decodedUri = urlDecode(uri);
 	std::string path = location.root;
 
@@ -199,6 +203,7 @@ std::string FileHandler::constructFilePath(const std::string &uri, const Locatio
 			path += '/';
 		path += relativePath;
 	}
+	std::cout << "Final path: " << path << std::endl;
 	return path;
 }
 

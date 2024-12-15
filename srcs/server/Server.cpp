@@ -6,12 +6,14 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 13:04:01 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/13 18:49:23 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/15 00:15:55 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "Server.hpp"
 #include "../handlers/RequestHandler.hpp"
+#include "../utils/TempFileManager.hpp"
+#include "../utils/Utils.hpp"
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <unistd.h>
@@ -21,12 +23,15 @@
 #include <cstdlib>
 #include <cstring>
 
+Logger &Server::_logger = Logger::getInstance();
+
 Server::Server(const ServerConfig &config) :
 		_host(config.host),
 		_port(config.port),
 		_serverSocket(-1),
 		_config(config),
 		_maxFd(0) {
+	_logger.configure("logs/server.log", INFO, true, true);
 }
 
 Server::~Server() {
@@ -77,90 +82,22 @@ void Server::setNonBlocking(int sockfd) {
 }
 
 void Server::handleClientData(int clientFd) {
-	char buffer[BUFFER_SIZE] = {};
+	char buffer[BUFFER_SIZE];
 	ClientState &client = _clients[clientFd];
-	client.lastActivity = time(NULL);
 
-	ssize_t bytesRead = recv(clientFd, buffer, sizeof(buffer), 0);
-	if (bytesRead <= 0)
-		return (closeConnection(clientFd));
+	ssize_t bytesRead = recv(clientFd, buffer, sizeof(buffer), MSG_DONTWAIT);
+
+	if (bytesRead < 0) {
+		if (errno != EAGAIN && errno != EWOULDBLOCK)
+			return closeConnection(clientFd);
+		return;  // Would block, try again later
+	}
+
+	if (bytesRead == 0)
+		return closeConnection(clientFd);
+
 	client.requestBuffer.append(buffer, bytesRead);
 	processCompleteRequests(clientFd, client);
-}
-
-bool Server::validateMethod(const std::string& method, const LocationConfig* location, ClientState& client) {
-	if (!location) return true;
-
-	for (std::vector<std::string>::const_iterator it = location->methods.begin(); it != location->methods.end(); ++it) {
-		if (*it == method) return true;
-	}
-
-	Response response(405);
-	response.addHeader("Content-Type", "text/html");
-	std::string allowed;
-	for (std::vector<std::string>::const_iterator it = location->methods.begin(); it != location->methods.end(); ++it) {
-		if (!allowed.empty()) allowed += ", ";
-		allowed += *it;
-	}
-	response.addHeader("Allow", allowed);
-	response.setBody("<html><body><h1>405 Method Not Allowed</h1></body></html>");
-	client.responseBuffer = response.toString();
-	client.requestBuffer.clear();
-	return false;
-}
-
-bool Server::validateContentLength(const std::string& requestBuffer, size_t headerEnd,
-								   const LocationConfig* location, ClientState& client) {
-	size_t clPos = requestBuffer.find("Content-Length: ");
-	if (clPos == std::string::npos || clPos > headerEnd) {
-		Response response(411, "Length Required");
-		client.responseBuffer = response.toString();
-		client.requestBuffer.clear();
-		return false;
-	}
-
-	size_t clEnd = requestBuffer.find("\r\n", clPos);
-	if (clEnd == std::string::npos) {
-		Response response(400, "Bad Request");
-		client.responseBuffer = response.toString();
-		client.requestBuffer.clear();
-		return false;
-	}
-
-	size_t contentLength = std::atol(requestBuffer.substr(clPos + 16, clEnd - (clPos + 16)).c_str());
-	if (location && contentLength > location->client_max_body_size) {
-		Response response = Response::makeErrorResponse(413);
-		client.responseBuffer = response.toString();
-		client.requestBuffer.clear();
-		return false;
-	}
-
-	return true;
-}
-
-void Server::handlePostRequest(int clientFd, ClientState &client, size_t headerEnd) {
-	const LocationConfig* location = _config.getLocation(
-			client.requestBuffer.substr(
-					client.requestBuffer.find(" ") + 1,
-					client.requestBuffer.find(" HTTP/") - client.requestBuffer.find(" ") - 1
-			)
-	);
-	// Validate content length header and size limits
-	if (!validateContentLength(client.requestBuffer, headerEnd, location, client))
-		return;
-
-	// Get content length
-	size_t clPos = client.requestBuffer.find("Content-Length: ");
-	size_t clEnd = client.requestBuffer.find("\r\n", clPos);
-	size_t contentLength = std::atol(
-			client.requestBuffer.substr(clPos + 16, clEnd - (clPos + 16)).c_str()
-	);
-	// Check if received all the data
-	if (client.requestBuffer.length() >= headerEnd + 4 + contentLength) {
-		processRequest(clientFd, client);
-		client.requestBuffer.clear();
-	}
-	// If not complete, wait for more data
 }
 
 void Server::processCompleteRequests(int clientFd, ClientState &client) {
@@ -168,20 +105,7 @@ void Server::processCompleteRequests(int clientFd, ClientState &client) {
 	if (headerEnd == std::string::npos)
 		return;
 
-	std::string transferEncoding;
-	size_t tePos = client.requestBuffer.find("Transfer-Encoding: ");
-	if (tePos != std::string::npos && tePos < headerEnd) {
-		size_t teEnd = client.requestBuffer.find("\r\n", tePos);
-		if (teEnd != std::string::npos)
-			transferEncoding = client.requestBuffer.substr(tePos + 19, teEnd - (tePos + 19));
-	}
-
-	if (transferEncoding == "chunked") {
-		// Look for the final chunk (0\r\n\r\n)
-		if (client.requestBuffer.find("0\r\n\r\n", headerEnd) == std::string::npos)
-			return; // Not all chunks received yet
-	}
-
+	// Extract method from request
 	size_t firstSpace = client.requestBuffer.find(" ");
 	if (firstSpace == std::string::npos) {
 		sendBadRequestResponse(clientFd);
@@ -190,29 +114,30 @@ void Server::processCompleteRequests(int clientFd, ClientState &client) {
 	}
 
 	std::string method = client.requestBuffer.substr(0, firstSpace);
-	size_t secondSpace = client.requestBuffer.find(" ", firstSpace + 1);
-	if (secondSpace == std::string::npos) {
-		sendBadRequestResponse(clientFd);
-		client.requestBuffer.clear();
-		return;
-	}
 
-	const LocationConfig* location = _config.getLocation(
-			client.requestBuffer.substr(
-					client.requestBuffer.find(" ") + 1,
-					client.requestBuffer.find(" HTTP/") - client.requestBuffer.find(" ") - 1
-			)
-	);
+	// For all methods, immediately process if we have complete request
+	if (method == "GET" || method == "HEAD" || method == "DELETE" || method == "PUT" || method == "POST") {
+		// For POST, verify we have complete body
+		if (method == "POST") {
+			std::string contentLength = client.requestBuffer.substr(
+					client.requestBuffer.find("Content-Length: ") + 16,
+					client.requestBuffer.find("\r\n",
+											  client.requestBuffer.find("Content-Length: ")) -
+					(client.requestBuffer.find("Content-Length: ") + 16)
+			);
 
-	if (!validateMethod(method, location, client))
-		return;
+			size_t length = std::atol(contentLength.c_str());
 
-	if (method == "POST") {
-		handlePostRequest(clientFd, client, headerEnd);
-	} else if (method == "GET" || method == "DELETE" || method == "PUT") {
+			// Only process if we have complete body
+			if (client.requestBuffer.length() < headerEnd + 4 + length) {
+				return;  // Wait for more data
+			}
+		}
+
 		processRequest(clientFd, client);
 		client.requestBuffer.clear();
 	} else {
+		// Handle unsupported methods
 		Response response(501);
 		response.addHeader("Content-Type", "text/html");
 		response.setBody("<html><body><h1>501 Not Implemented</h1></body></html>");
@@ -226,9 +151,12 @@ void Server::handleNewConnection() {
 	socklen_t addrLen = sizeof(addr);
 
 	int clientFd = accept(_serverSocket, (sockaddr *) &addr, &addrLen);
-	if (clientFd < 0)
+	if (clientFd < 0) {
+		_logger.error("Failed to accept connection: " + std::string(strerror(errno)), "Server");
 		return;
+	}
 
+	_logger.info("New connection accepted: " + Utils::numToString(clientFd), "Server");
 	setNonBlocking(clientFd);
 	_clients[clientFd] = ClientState();
 	updateMaxFileDescriptor();
@@ -236,24 +164,19 @@ void Server::handleNewConnection() {
 
 void Server::handleClientWrite(int clientFd) {
 	ClientState &client = _clients[clientFd];
-	client.lastActivity = time(NULL);
+
 	if (client.responseBuffer.empty())
 		return;
 
-	// Fill write buffer
-	size_t toWrite = std::min(client.writeBufferSize,
-							  client.responseBuffer.size());
-	client.writeBuffer.assign(
-			client.responseBuffer.begin(),
-			client.responseBuffer.begin() + toWrite
-	);
+	size_t toWrite = std::min(client.writeBufferSize, client.responseBuffer.size());
 
-	// Send buffered data
-	ssize_t sent = send(clientFd, client.writeBuffer.data(),
-						toWrite, 0);
+	ssize_t sent = send(clientFd, client.responseBuffer.c_str(), toWrite, MSG_DONTWAIT);
 
-	if (sent < 0 && errno != EWOULDBLOCK && errno != EAGAIN)
-		return (closeConnection(clientFd));
+	if (sent < 0) {
+		if (errno != EAGAIN && errno != EWOULDBLOCK)
+			return closeConnection(clientFd);
+		return;  // Would block, try again later
+	}
 
 	if (sent > 0) {
 		client.responseBuffer.erase(0, sent);
@@ -272,6 +195,9 @@ void Server::processRequest(int clientFd, ClientState &client) {
 	if (!request.parse(client.requestBuffer))
 		return sendBadRequestResponse(clientFd);
 
+	// Set temp file path if exists
+	request.setTempFilePath(client.tempFilePath);
+
 	RequestHandler handler(_config);
 	Response response = handler.handleRequest(request);
 	client.responseBuffer = response.toString();
@@ -285,6 +211,13 @@ void Server::sendBadRequestResponse(int clientFd) {
 }
 
 void Server::closeConnection(int clientFd) {
+	ClientState &client = _clients[clientFd];
+	if (client.tempFileFd != -1) {
+		close(client.tempFileFd);
+	}
+	if (!client.tempFilePath.empty()) {
+		TempFileManager::deleteTempFile(client.tempFilePath);
+	}
 	close(clientFd);
 	_clients.erase(clientFd);
 }
@@ -297,11 +230,13 @@ void Server::stop() {
 }
 
 void Server::initialize() {
-	if (!initializeSocket())
+	if (!initializeSocket()) {
+		_logger.error("Failed to initialize socket", "Server");
 		throw std::runtime_error("Failed to initialize socket");
+	}
 
 	updateMaxFileDescriptor();
-	std::cout << "Server " << _host << " started on port: " << _port << std::endl;
+	_logger.info("Server " + _host + " started on port: " + Utils::numToString(_port), "Server");
 }
 
 void Server::handleExistingConnections(fd_set &readSet, fd_set &writeSet) {
@@ -339,7 +274,7 @@ bool Server::isConnectionIdle(time_t currentTime, const ClientState &client) con
 	return (currentTime - client.lastActivity) > IDLE_TIMEOUT;
 }
 
-Server::ClientState::ClientState() : writeBufferSize(DEFAULT_WRITE_BUFFER_SIZE), lastActivity(time(NULL)) {
+Server::ClientState::ClientState() : writeBufferSize(DEFAULT_WRITE_BUFFER_SIZE), lastActivity(time(NULL)), tempFileFd(-1) {
 	writeBuffer.reserve(writeBufferSize);
 }
 

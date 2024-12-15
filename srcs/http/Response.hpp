@@ -23,6 +23,8 @@ class Response {
 		std::map<std::string, std::string> _headers;
 		std::string _body;
 		bool _isChunked;
+		bool _isRawOutput;
+		std::string _rawOutput;
 
 		// Helper methods
 		void updateContentLength();
@@ -34,11 +36,19 @@ class Response {
 
 		void setStatusCode(int code);
 		void setBody(const std::string &body);
+		std::string getBody();
+		void setRawOutput(const std::string &output);
 		void addHeader(const std::string &name, const std::string &value);
 		static Response makeErrorResponse(int statusCode);
 		std::string toString() const;
 		void setChunked(bool chunked);
 		bool isChunked() const;
+		void clearHeaders();
+		bool hasHeader(const char *string);
+
+		std::string getHeader(const char *name);
+
+		std::map<std::string, std::string> getHeaders();
 };
 
 #endif

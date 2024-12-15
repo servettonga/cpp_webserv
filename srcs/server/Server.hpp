@@ -14,11 +14,12 @@
 #define SERVER_HPP
 
 #include "ServerConfig.hpp"
+#include "../utils/Logger.hpp"
 #include <map>
 #include <string>
 #include <sys/select.h>
 
-#define BUFFER_SIZE (128 * 1024)	// 128KB
+#define BUFFER_SIZE (1024 * 1024)	// 128KB
 
 class Server {
 	public:
@@ -34,6 +35,8 @@ class Server {
 			std::vector<char> writeBuffer;
 			size_t writeBufferSize;
 			time_t lastActivity;
+			std::string tempFilePath;
+			int tempFileFd;
 
 			ClientState();
 		};
@@ -53,6 +56,7 @@ class Server {
 		int _serverSocket;
 		const ServerConfig _config;
 		static const int IDLE_TIMEOUT = 300;	// 5 minutes in seconds
+		static Logger &_logger;
 
 		// Socket management
 		int _maxFd;
@@ -76,10 +80,6 @@ class Server {
 		void processCompleteRequests(int clientFd, ClientState &client);
 		void processRequest(int clientFd, ClientState &client);
 		void sendBadRequestResponse(int clientFd);
-		void handlePostRequest(int clientFd, ClientState &client, size_t headerEnd);
-		bool validateMethod(const std::string &method, const LocationConfig *location, ClientState &client);
-		bool validateContentLength(const std::string &requestBuffer, size_t headerEnd, const LocationConfig *location,
-								   ClientState &client);
 };
 
 #endif

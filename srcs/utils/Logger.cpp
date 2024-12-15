@@ -11,254 +11,217 @@
 /* ************************************************************************** */
 
 #include "Logger.hpp"
+#include "Utils.hpp"
+#include <iostream>
+#include <sstream>
+#include <ctime>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <cstdlib>
 
-Logger &Logger::getInstance() {
-	static Logger instance;
-	return instance;
-	/*
-		getInstance():
-		1. Create static Logger instance
-		2. Return reference to instance
-	*/
+Logger* Logger::_instance = NULL;
+
+Logger& Logger::getInstance() {
+	if (_instance == NULL) {
+		_instance = new Logger();
+	}
+	return *_instance;
 }
 
-void Logger::configure(const std::string &logPath, Logger::Level minLevel, bool consoleOutput, bool timestampEnabled) {
-	/*
-		configure(logPath, minLevel, consoleOutput, timestampEnabled):
-		1. Close existing log file if open
-		2. Set configuration parameters
-		3. Open a new log file in append mode
-		4. IF file open fails:
-		   Throw runtime error
-		5. Write initial log entry with configuration info
-	*/
-	(void)logPath;
-	(void)minLevel;
-	(void)consoleOutput;
-	(void)timestampEnabled;
+Logger::Logger() :
+		_enabled(true),
+		_consoleOutput(true),
+		_timestampEnabled(true),
+		_minLevel(INFO),
+		_isLocked(false),
+		_maxFileSize(DEFAULT_MAX_FILE_SIZE),
+		_maxBackupCount(DEFAULT_MAX_BACKUP_COUNT) {
+
+	// Initialize color codes
+	_levelColors[DEBUG] = "\033[0;37m";    // White
+	_levelColors[INFO] = "\033[0;32m";     // Green
+	_levelColors[WARNING] = "\033[0;33m";  // Yellow
+	_levelColors[ERROR] = "\033[0;31m";    // Red
 }
 
-/*
-Logging convenience methods (debug, info, warn, error, fatal):
-1. Call log() with appropriate level and parameters
-*/
-void Logger::debug(const std::string &message, const std::string &component) {
-	(void)message;
-	(void)component;
+Logger::~Logger() {
+	if (_logFile.is_open()) {
+		_logFile.close();
+	}
 }
 
-void Logger::info(const std::string &message, const std::string &component) {
-	(void)message;
-	(void)component;
+void Logger::configure(const std::string& logPath, LogLevel minLevel,
+					   bool consoleOutput, bool timestampEnabled) {
+	if (_logFile.is_open()) {
+		_logFile.close();
+	}
+
+	_logPath = logPath;
+	_minLevel = minLevel;
+	_consoleOutput = consoleOutput;
+	_timestampEnabled = timestampEnabled;
+
+	// Create directory if it doesn't exist
+	size_t lastSlash = _logPath.find_last_of('/');
+	if (lastSlash != std::string::npos) {
+		std::string dirPath = _logPath.substr(0, lastSlash);
+		std::string cmd = "mkdir -p " + dirPath;
+		system(cmd.c_str());
+	}
+
+	_logFile.open(_logPath.c_str(), std::ios::app);
+	if (!_logFile.is_open()) {
+		throw std::runtime_error("Failed to open log file: " + _logPath);
+	}
+
+	info("Logging initialized", "Logger");
 }
 
-void Logger::warn(const std::string &message, const std::string &component) {
-	(void)message;
-	(void)component;
+void Logger::log(LogLevel level, const std::string& message, const std::string& component) {
+	if (!_enabled || !shouldLog(level)) {
+		return;
+	}
+
+	try {
+		lock();
+
+		std::stringstream ss;
+		if (_timestampEnabled) {
+			ss << "[" << getTimestamp() << "] ";
+		}
+		ss << "[" << getLevelString(level) << "] ";
+
+		if (!component.empty()) {
+			ss << "[" << component << "] ";
+		}
+
+		ss << message << std::endl;
+		std::string formattedMessage = ss.str();
+
+		writeToFile(formattedMessage);
+		if (_consoleOutput) {
+			writeToConsole(formattedMessage, level);
+		}
+
+		checkRotation();
+		unlock();
+	}
+	catch (const std::exception& e) {
+		unlock();
+		throw;
+	}
 }
 
-void Logger::error(const std::string &message, const std::string &component) {
-	(void)message;
-	(void)component;
+// Convenience methods
+void Logger::debug(const std::string& message, const std::string& component) {
+	log(DEBUG, message, component);
 }
 
-void Logger::fatal(const std::string &message, const std::string &component) {
-	(void)message;
-	(void)component;
+void Logger::info(const std::string& message, const std::string& component) {
+	log(INFO, message, component);
 }
 
-/*
-Access methods:
-setLevel(level):
-1. Set _minLevel = level
-
-enableConsoleOutput(enable):
-1. Set _consoleOutput = enable
-
-enableTimestamp(enable):
-1. Set _timestampEnabled = enable
-
-setLogPath(path):
-1. Configure with new path, keeping other settings
-*/
-
-void Logger::setLevel(Logger::Level level) {
-	(void)level;
+void Logger::warn(const std::string& message, const std::string& component) {
+	log(WARNING, message, component);
 }
 
-void Logger::enableConsoleOutput(bool enable) {
-	(void)enable;
+void Logger::error(const std::string& message, const std::string& component) {
+	log(ERROR, message, component);
 }
 
-void Logger::enableTimestamp(bool enable) {
-	(void)enable;
+void Logger::fatal(const std::string& message, const std::string& component) {
+	log(ERROR, "FATAL: " + message, component);
 }
 
-void Logger::setLogPath(const std::string &path) {
-	(void)path;
+// Private helper methods
+std::string Logger::getTimestamp() const {
+	time_t now = time(NULL);
+	struct tm* timeinfo = localtime(&now);
+	char buffer[80];
+	strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", timeinfo);
+	return std::string(buffer);
 }
 
-void Logger::rotate() {
-	/*
-		rotate():
-		1. Close current log file
-		2. FOR i = _maxBackupCount-1 DOWN TO 0:
-		   Rename "log.i" to "log.(i+1)"
-		3. Rename current log to "log.1"
-		4. Open new log file
-		5. Write rotation message
-	*/
+std::string Logger::getLevelString(LogLevel level) const {
+	switch(level) {
+		case DEBUG: return "DEBUG";
+		case INFO: return "INFO";
+		case WARNING: return "WARNING";
+		case ERROR: return "ERROR";
+		default: return "UNKNOWN";
+	}
 }
 
-Logger::Logger() {
-	/*
-		Constructor:
-		1. Initialize default values:
-		   - _minLevel = INFO
-		   - _consoleOutput = true
-		   - _timestampEnabled = true
-		   - _isLocked = false
-		   - _maxFileSize = 10MB
-		   - _maxBackupCount = 5
-
-		2. Set up color codes for console:
-		   - DEBUG -> White ("\033[0;37m")
-		   - INFO  -> Green ("\033[0;32m")
-		   - WARN  -> Yellow ("\033[0;33m")
-		   - ERROR -> Red ("\033[0;31m")
-		   - FATAL -> Bright Red ("\033[1;31m")
-	*/
+void Logger::writeToFile(const std::string& message) {
+	if (_logFile.is_open()) {
+		_logFile << message;
+		_logFile.flush();
+	}
 }
 
-Logger::~Logger() {}
-
-Logger::Logger(const Logger &) {
-	_consoleOutput = true;
-	_isLocked = false;
-	_levelColors.clear();
-	_maxBackupCount = 5;
-	_maxFileSize = 10 * 1024 * 1024;
-	_minLevel = INFO;
-	_timestampEnabled = true;
-	_logPath = "";
+void Logger::writeToConsole(const std::string& message, LogLevel level) {
+	std::string colorCode = _levelColors[level];
+	std::cout << colorCode << message << "\033[0m" << std::flush;
 }
 
-Logger &Logger::operator=(const Logger &) {
-	return *this;
-}
-
-void Logger::log(Logger::Level level, const std::string &message, const std::string &component) {
-	/*
-		log(level, message, component):
-		1. IF !shouldLog(level):
-		   RETURN
-
-		2. Create formatted message
-		3. Lock logger
-		4. Try:
-		   - Write to file if enabled
-		   - Write to console if enabled
-		   - Check rotation
-		5. Catch any exceptions
-		6. Unlock logger
-		7. Rethrow any caught exceptions
-	*/
-	(void)level;
-	(void)message;
-	(void)component;
-}
-
-void Logger::writeToFile(const std::string &formattedMessage) {
-	/*
-		writeToFile(formattedMessage):
-		1. IF the file not open:
-		   RETURN
-		2. Write a message with newline
-		3. Flush file
-		4. IF write fails:
-		   Handle error
-	*/
-	(void)formattedMessage;
-}
-
-void Logger::writeToConsole(const std::string &formattedMessage, Logger::Level level) {
-	/*
-		writeToConsole(formattedMessage, level):
-		1. Get color for level
-		2. Write a colored message to stdout
-		3. Reset color code
-		4. Flush stdout
-	*/
-	(void)formattedMessage;
-	(void)level;
-}
-
-std::string Logger::formatMessage(Logger::Level level, const std::string &message, const std::string &component) {
-	/*
-		formatMessage(level, message, component):
-		1. Create empty result string
-		2. IF timestamp enabled:
-		   Add "[timestamp]"
-		3. Add "[level]"
-		4. IF the component not empty:
-		   Add "[component]"
-		5. Add message
-		6. Return formatted string
-	*/
-	(void)level;
-	(void)message;
-	(void)component;
-	return std::string();
-}
-
-std::string Logger::getLevelString(Logger::Level level) {
-	/*
-		getLevelString(level):
-		1. SWITCH level:
-		   CASE DEBUG: return "DEBUG"
-		   CASE INFO: return "INFO"
-		   CASE WARN: return "WARN"
-		   CASE ERROR: return "ERROR"
-		   CASE FATAL: return "FATAL"
-	*/
-	(void)level;
-	return std::string();
-}
-
-std::string Logger::getTimestamp() {
-	/*
-		getTimestamp():
-		1. Get current time
-		2. Format as "YYYY-MM-DD HH:MM:SS"
-		3. Return formatted string
-	*/
-	return std::string();
-}
-
-bool Logger::shouldLog(Logger::Level level) const {
-	return (level >= _minLevel);
+bool Logger::shouldLog(LogLevel level) const {
+	return level >= _minLevel;
 }
 
 void Logger::checkRotation() {
-	/*
-		checkRotation():
-		1. IF file not open:
-		   RETURN
-		2. Get current file size
-		3. IF size > _maxFileSize:
-		   Call rotate()
-	*/
+	if (!_logFile.is_open()) return;
+
+	struct stat st;
+	if (stat(_logPath.c_str(), &st) == 0) {
+		if (static_cast<size_t>(st.st_size) > _maxFileSize) {
+			rotate();
+		}
+	}
+}
+
+void Logger::rotate() {
+	_logFile.close();
+
+	// Rotate existing backup files
+	for (size_t i = _maxBackupCount - 1; i > 0; --i) {
+		std::string oldName = _logPath + "." + Utils::numToString(i);
+		std::string newName = _logPath + "." + Utils::numToString(i + 1);
+		rename(oldName.c_str(), newName.c_str());
+	}
+
+	// Rename current log to .1
+	std::string backup = _logPath + ".1";
+	rename(_logPath.c_str(), backup.c_str());
+
+	// Open new log file
+	_logFile.open(_logPath.c_str(), std::ios::app);
+	info("Log file rotated", "Logger");
 }
 
 void Logger::lock() {
-	/*
-		lock():
-		1. WHILE _isLocked:
-		   Sleep briefly
-		2. Set _isLocked to true
-	*/
+	while (_isLocked) {
+		usleep(100);
+	}
+	_isLocked = true;
 }
 
 void Logger::unlock() {
 	_isLocked = false;
+}
+
+// Configuration methods
+void Logger::setLevel(LogLevel level) {
+	_minLevel = level;
+}
+
+void Logger::enableConsoleOutput(bool enable) {
+	_consoleOutput = enable;
+}
+
+void Logger::enableTimestamp(bool enable) {
+	_timestampEnabled = enable;
+}
+
+void Logger::setLogPath(const std::string& path) {
+	configure(path, _minLevel, _consoleOutput, _timestampEnabled);
 }

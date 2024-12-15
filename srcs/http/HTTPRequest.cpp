@@ -165,3 +165,7 @@ bool HTTPRequest::parseChunkedBody(const std::string& rawRequest, size_t bodySta
 		return false;
 	}
 }
+
+void HTTPRequest::setTempFilePath(const std::string &path) { _tempFilePath = path; }
+
+const std::string &HTTPRequest::getTempFilePath() const { return _tempFilePath; }
