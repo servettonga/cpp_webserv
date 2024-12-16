@@ -167,6 +167,17 @@ void CGIHandler::setupEnvironment(const HTTPRequest &request, const std::string 
 		 it != _envMap.end(); ++it) {
 		_logger.debug(it->first + "=" + it->second);
 	}
+	_logger.info("Request headers:");
+	const std::map<std::string, std::string>& headers = request.getHeaders();
+	for (std::map<std::string, std::string>::const_iterator it = headers.begin();
+		 it != headers.end(); ++it) {
+		_logger.info(it->first + ": " + it->second);
+	}
+
+	// Special header handling
+	if (request.hasHeader("X-Secret-Header-For-Test")) {
+		_envMap["HTTP_X_SECRET_HEADER_FOR_TEST"] = request.getHeader("X-Secret-Header-For-Test");
+	}
 }
 
 char** CGIHandler::createEnvArray() {
@@ -264,7 +275,6 @@ Response CGIHandler::handleCGIOutput(TempFiles &files) {
 
 	// Set content length based on actual body length
 	response.addHeader("Content-Length", Utils::numToString(output.length()));
-
 	return response;
 }
 
