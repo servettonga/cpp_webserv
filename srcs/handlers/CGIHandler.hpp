@@ -42,10 +42,10 @@ class CGIHandler {
 		};
 
 		void setupEnvironment(const HTTPRequest& request, const std::string& scriptPath);
-		void cleanupTempFiles(const TempFiles &files);
+		void cleanupTempFiles(TempFiles &files);
 		char** createEnvArray();
 		bool handleTimeout(pid_t pid);
-		Response handleCGIOutput(const TempFiles& files);
+		Response handleCGIOutput(TempFiles &files);
 		Response createErrorResponse(int code, const std::string& message);
 
 	public:

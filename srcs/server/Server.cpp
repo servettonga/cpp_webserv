@@ -95,42 +95,72 @@ void Server::handleClientData(int clientFd) {
 
 	if (client.state == WRITING_RESPONSE)
 		return;
+
 	char buffer[BUFFER_SIZE];
 	ssize_t bytesRead = recv(clientFd, buffer, sizeof(buffer), MSG_DONTWAIT);
-	if (bytesRead < 0) {
-		if (errno != EAGAIN && errno != EWOULDBLOCK)
-			closeConnection(clientFd);
-		return;
-	}
-	if (bytesRead == 0) {
+
+	if (bytesRead > 0) {
+		client.requestBuffer.append(buffer, bytesRead);
+		client.lastActivity = time(NULL);
+
+		// Check if we have headers
+		size_t headerEnd = client.requestBuffer.find("\r\n\r\n");
+		if (headerEnd != std::string::npos) {
+			// Parse headers to get Content-Length
+			if (client.contentLength == 0) {
+				std::string headers = client.requestBuffer.substr(0, headerEnd);
+				size_t clPos = headers.find("Content-Length: ");
+				if (clPos != std::string::npos) {
+					size_t clEnd = headers.find("\r\n", clPos);
+					std::string clStr = headers.substr(clPos + 16, clEnd - (clPos + 16));
+					client.contentLength = std::atol(clStr.c_str());
+				}
+			}
+
+			// Handle Expect: 100-continue
+			if (!client.continueSent &&
+				client.requestBuffer.find("Expect: 100-continue") != std::string::npos) {
+				std::string continueResponse = "HTTP/1.1 100 Continue\r\n\r\n";
+				send(clientFd, continueResponse.c_str(), continueResponse.length(), MSG_DONTWAIT);
+				client.continueSent = true;
+				return;  // Wait for the body
+			}
+
+			// Check if we have the complete body
+			size_t totalLength = headerEnd + 4 + client.contentLength;
+			if (client.requestBuffer.length() >= totalLength) {
+				processCompleteRequests(clientFd, client);
+			}
+		}
+	} else if (bytesRead == 0) {
 		closeConnection(clientFd);
-		return;
+	} else if (errno != EAGAIN && errno != EWOULDBLOCK) {
+		closeConnection(clientFd);
 	}
-	client.state = READING_REQUEST;
-	client.lastActivity = time(NULL);
-	client.requestBuffer.append(buffer, bytesRead);
-	// Process complete requests if available
-	processCompleteRequests(clientFd, client);
 }
 
 void Server::processCompleteRequests(int clientFd, ClientState &client) {
+	// Process headers
 	size_t headerEnd = client.requestBuffer.find("\r\n\r\n");
 	if (headerEnd == std::string::npos)
-		return;
-	if (client.requestBuffer.find("HTTP/1.1") == std::string::npos) {
-		sendBadRequestResponse(clientFd);
-		closeConnection(clientFd);
-		return;
+		return;  // Need more headers
+
+	// Check for chunked transfer
+	std::string transferEncoding;
+	size_t tePos = client.requestBuffer.find("Transfer-Encoding: ");
+	if (tePos != std::string::npos && tePos < headerEnd) {
+		size_t teEnd = client.requestBuffer.find("\r\n", tePos);
+		transferEncoding = client.requestBuffer.substr(tePos + 19, teEnd - (tePos + 19));
 	}
-	size_t contentLengthPos = client.requestBuffer.find("Content-Length: ");
-	if (contentLengthPos != std::string::npos) {
-		size_t endOfLength = client.requestBuffer.find("\r\n", contentLengthPos);
-		size_t length = std::atol(client.requestBuffer.substr(
-				contentLengthPos + 16, endOfLength - (contentLengthPos + 16)).c_str());
-		// Wait for complete body
-		if (client.requestBuffer.length() < headerEnd + 4 + length)
-			return;
+
+	// Handle chunked data
+	if (transferEncoding == "chunked") {
+		size_t endPos = client.requestBuffer.find("0\r\n\r\n");
+		if (endPos == std::string::npos)
+			return;  // Need more chunks
 	}
+
+	// Process request
 	HTTPRequest request;
 	if (!request.parse(client.requestBuffer)) {
 		sendBadRequestResponse(clientFd);
@@ -138,6 +168,8 @@ void Server::processCompleteRequests(int clientFd, ClientState &client) {
 		client.requestBuffer.clear();
 		return;
 	}
+
+	// Handle request
 	RequestHandler handler(_config);
 	Response response = handler.handleRequest(request);
 	client.responseBuffer = response.toString();

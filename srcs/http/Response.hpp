@@ -49,6 +49,8 @@ class Response {
 		std::string getHeader(const char *name);
 
 		std::map<std::string, std::string> getHeaders();
+
+		int getStatusCode();
 };
 
 #endif

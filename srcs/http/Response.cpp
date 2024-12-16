@@ -18,6 +18,8 @@ Response::Response(int statusCode, const std::string &serverName) :
 	_statusCode(statusCode), _isChunked(false), _isRawOutput(false) {
 	_headers["Server"] = serverName;
 	_headers["Content-Type"] = "text/plain";
+	if (statusCode == 100)
+		_rawOutput = "HTTP/1.1 100 Continue\r\n\r\n";
 }
 
 Response::~Response() {}
@@ -189,3 +191,9 @@ std::string Response::getHeader(const char *name) {
 }
 
 std::map<std::string, std::string> Response::getHeaders() { return _headers; }
+
+int Response::getStatusCode() { return _statusCode; }
+
+void Response::clearHeaders() {
+
+}

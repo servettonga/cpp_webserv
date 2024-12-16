@@ -11,6 +11,7 @@
 /* ************************************************************************** */
 
 #include "HTTPRequest.hpp"
+#include "../utils/Utils.hpp"
 #include <sstream>
 #include <cstdlib>
 
@@ -32,23 +33,33 @@ bool HTTPRequest::parse(const std::string &rawRequest) {
 										headerEnd - (firstLineEnd + 2))))
 		return false;
 
-	// Check transfer encoding
-	std::string transferEncoding = getHeader("Transfer-Encoding");
-	_isChunked = (transferEncoding == "chunked");
+	// Check transfer encoding first
+	_isChunked = (getHeader("Transfer-Encoding") == "chunked");
+	size_t bodyStart = headerEnd + 4;  // Start of body after headers
 
 	if (_isChunked) {
-		return parseChunkedBody(rawRequest, headerEnd + 4);
+		try {
+			// Extract and process chunked body
+			std::string chunkedBody = rawRequest.substr(bodyStart);
+			_body = unchunkData(chunkedBody);
+
+			// Update Content-Length header after unchunking
+			_headers["Content-Length"] = Utils::numToString(_body.length());
+			// Remove Transfer-Encoding header as we've processed it
+			_headers.erase("Transfer-Encoding");
+		} catch (const std::exception& e) {
+			return false;
+		}
 	} else {
-		// Handle body if Content-Length present
+		// Handle standard body with Content-Length
 		std::string contentLength = getHeader("Content-Length");
 		if (!contentLength.empty()) {
-			size_t bodyLength = std::atol(contentLength.c_str());
-			size_t bodyStart = headerEnd + 4;
-			if (rawRequest.length() < bodyStart + bodyLength)
-				return false;
-			_body = rawRequest.substr(bodyStart, bodyLength);
+			_body = rawRequest.substr(bodyStart);
+			// Set Content-Length to actual body size
+			_headers["Content-Length"] = Utils::numToString(_body.length());
 		}
 	}
+
 	return true;
 }
 

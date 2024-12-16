@@ -38,7 +38,7 @@ class HTTPRequest {
 		// Header operations
 		bool hasHeader(const std::string &name) const;
 		std::string getHeader(const std::string &name) const;
-
+		static std::string unchunkData(const std::string& chunkedData);
 
 	private:
 		// Request components
@@ -52,7 +52,7 @@ class HTTPRequest {
 
 		// Chunked transfer encoding
 		bool _isChunked;
-		std::string unchunkData(const std::string& chunkedData);
+
 		bool parseChunkedBody(const std::string& rawRequest, size_t bodyStart);
 
 		// Parsing helpers

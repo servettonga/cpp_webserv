@@ -18,6 +18,7 @@
 #include <map>
 #include <string>
 #include <sys/select.h>
+#include <sstream>
 
 #define BUFFER_SIZE 8192
 #define KEEP_ALIVE_TIMEOUT 60    // 60 seconds for keep-alive connections
@@ -46,8 +47,14 @@ class Server {
 			std::string requestBuffer;
 			std::string responseBuffer;
 			time_t lastActivity;
+			size_t contentLength;
+			bool continueSent;
 
-			ClientState() : state(IDLE), lastActivity(time(NULL)) {}
+			ClientState() : state(IDLE),
+							lastActivity(time(NULL)),
+							contentLength(0),
+							continueSent(false) {}
+
 		};
 		const std::map<int, ClientState> &getClients() const { return _clients; }
 

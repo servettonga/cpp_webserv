@@ -59,18 +59,53 @@ Response RequestHandler::handleRequest(const HTTPRequest &request) {
 }
 
 const LocationConfig* RequestHandler::getLocation(const std::string& path) const {
-	const LocationConfig* bestMatch = NULL;
-	size_t bestLength = 0;
-
+	// First try regex patterns (including .bla files)
 	for (std::vector<LocationConfig>::const_iterator it = _config.locations.begin();
 		 it != _config.locations.end(); ++it) {
-		if (path.find(it->path) == 0 && it->path.length() > bestLength) {
-			bestMatch = &(*it);
-			bestLength = it->path.length();
+		if (!it->path.empty() && it->path[0] == '~') {
+			size_t patternStart = it->path.find_first_not_of(" \t", 1);
+			if (patternStart == std::string::npos)
+				continue;
+
+			std::string pattern = it->path.substr(patternStart);
+			pattern = pattern.substr(0, pattern.find_first_of(" \t"));
+
+			// Remove $ anchor if present
+			bool hasEndAnchor = pattern[pattern.length() - 1] == '$';
+			if (hasEndAnchor)
+				pattern = pattern.substr(0, pattern.length() - 1);
+
+			// Check if path matches pattern
+			if (path.length() >= pattern.length()) {
+				std::string pathEnd = path.substr(path.length() - pattern.length());
+				if (pathEnd == pattern) {
+					std::cout << "Matched regex pattern: " << pattern << " for path: " << path << std::endl;
+					return &(*it);
+				}
+			}
 		}
 	}
 
-	return bestMatch;
+	// Then try exact and prefix matches
+	const LocationConfig* exactMatch = NULL;
+	const LocationConfig* prefixMatch = NULL;
+	size_t prefixLength = 0;
+
+	for (std::vector<LocationConfig>::const_iterator it = _config.locations.begin();
+		 it != _config.locations.end(); ++it) {
+		if (it->path[0] == '~')  // Skip regex locations
+			continue;
+		if (it->path == path) {
+			exactMatch = &(*it);
+			break;
+		}
+		if (path.find(it->path) == 0 && it->path.length() > prefixLength) {
+			prefixMatch = &(*it);
+			prefixLength = it->path.length();
+		}
+	}
+
+	return exactMatch ? exactMatch : prefixMatch;
 }
 
 bool RequestHandler::isMethodAllowed(const std::string &method, const LocationConfig &loc) const {
@@ -89,6 +124,22 @@ Response RequestHandler::handleGET(const HTTPRequest &request) const {
 		return Response::makeErrorResponse(404);
 
 	std::string fullPath = FileHandler::constructFilePath(path, *location);
+	// Check CGI for files
+	size_t extPos = path.find_last_of('.');
+	if (extPos != std::string::npos) {
+		std::string ext = path.substr(extPos);
+		std::map<std::string, std::string>::const_iterator handlerIt =
+				_config.cgi_handlers.find(ext);
+
+		if (handlerIt != _config.cgi_handlers.end()) {
+			if (!location->cgi_path.empty()) {  // Location has CGI configuration
+				CGIHandler handler;
+				HTTPRequest req(request);
+				req.setConfig(&_config);
+				return handler.executeCGI(req, handlerIt->second, fullPath);
+			}
+		}
+	}
 	struct stat st;
 	if (stat(fullPath.c_str(), &st) != 0) {
 		size_t lastSlash = fullPath.find_last_of('/');
@@ -134,40 +185,24 @@ Response RequestHandler::handleGET(const HTTPRequest &request) const {
 		}
 		return Response::makeErrorResponse(404);
 	}
-	// Check CGI for files
-	size_t extPos = path.find_last_of('.');
-	if (extPos != std::string::npos) {
-		std::string ext = path.substr(extPos);
-		std::map<std::string, std::string>::const_iterator handlerIt =
-				_config.cgi_handlers.find(ext);
-		if (handlerIt != _config.cgi_handlers.end()) {
-			CGIHandler handler;
-			HTTPRequest req(request);
-			req.setConfig(&_config);
-			return handler.executeCGI(req, handlerIt->second, fullPath);
-		}
-	}
 	return FileHandler::serveFile(fullPath, path);
 }
 
 Response RequestHandler::handlePOST(const HTTPRequest &request) const {
 	std::string path = request.getPath();
 	const LocationConfig *location = getLocation(path);
+
 	if (!location)
 		return Response::makeErrorResponse(404);
-
 	if (request.getBody().size() > location->client_max_body_size)
 		return Response::makeErrorResponse(413);
 
-	std::cout << "POST request path: " << path << std::endl;
-
-	// Check for CGI handler based on extension
+	// Check for CGI handlers first
 	size_t extPos = path.find_last_of('.');
 	if (extPos != std::string::npos) {
 		std::string ext = path.substr(extPos);
 		std::map<std::string, std::string>::const_iterator handlerIt =
 				_config.cgi_handlers.find(ext);
-
 		if (handlerIt != _config.cgi_handlers.end()) {
 			std::string fullPath = FileHandler::constructFilePath(path, *location);
 			CGIHandler handler;
@@ -177,9 +212,21 @@ Response RequestHandler::handlePOST(const HTTPRequest &request) const {
 		}
 	}
 
-	// Handle regular POST
-	if (request.getHeader("Content-Type").find("multipart/form-data") != std::string::npos)
+	// Handle other POST types
+	const std::string& contentType = request.getHeader("Content-Type");
+	if (contentType.find("multipart/form-data") != std::string::npos) {
 		return FileHandler::handleFileUpload(request, *location);
+	}
+
+	// Remove content-type check for standard POST
+	std::string fullPath = FileHandler::constructFilePath(path, *location);
+	CGIHandler handler;
+	HTTPRequest req(request);
+	req.setConfig(&_config);
+	std::map<std::string, std::string>::const_iterator cgiIt = _config.cgi_handlers.find(".bla");
+	if (cgiIt != _config.cgi_handlers.end()) {
+		return handler.executeCGI(req, cgiIt->second, fullPath);
+	}
 
 	return Response::makeErrorResponse(400);
 }
