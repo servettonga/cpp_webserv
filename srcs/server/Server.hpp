@@ -83,7 +83,6 @@ class Server {
 		void handleClientData(int clientFd);
 		void handleClientWrite(int clientFd);
 		void closeConnection(int clientFd);
-		bool shouldCloseConnection(const ClientState &client) const;
 		void updateMaxFileDescriptor();
 
 		// Request processing

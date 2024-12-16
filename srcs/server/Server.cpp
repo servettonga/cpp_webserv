@@ -44,6 +44,7 @@ bool Server::initializeSocket() {
 	_serverSocket = socket(AF_INET, SOCK_STREAM, 0);
 	if (_serverSocket < 0)
 		return false;
+
 	// Set socket options
 	int opt = 1;
 	if (setsockopt(_serverSocket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0 ||
@@ -51,34 +52,48 @@ bool Server::initializeSocket() {
 		close(_serverSocket);
 		return false;
 	}
-	// Set socket to non-blocking
-	setNonBlocking(_serverSocket);
-	// Set TCP options for better performance
+
+	// Set socket buffer sizes
+	int rcvBufSize = 256 * 1024;  // 256KB
+	int sndBufSize = 256 * 1024;  // 256KB
+	setsockopt(_serverSocket, SOL_SOCKET, SO_RCVBUF, &rcvBufSize, sizeof(rcvBufSize));
+	setsockopt(_serverSocket, SOL_SOCKET, SO_SNDBUF, &sndBufSize, sizeof(sndBufSize));
+
+	// Set TCP options
 	int tcpQuickAck = 1;
-	setsockopt(_serverSocket, IPPROTO_TCP, TCP_QUICKACK, &tcpQuickAck, sizeof(tcpQuickAck));
 	int tcpNoDelay = 1;
+	setsockopt(_serverSocket, IPPROTO_TCP, TCP_QUICKACK, &tcpQuickAck, sizeof(tcpQuickAck));
 	setsockopt(_serverSocket, IPPROTO_TCP, TCP_NODELAY, &tcpNoDelay, sizeof(tcpNoDelay));
+
 	// Set keep-alive
 	int keepAlive = 1;
+	int keepIdle = 60;
+	int keepInterval = 10;
+	int keepCount = 3;
 	setsockopt(_serverSocket, SOL_SOCKET, SO_KEEPALIVE, &keepAlive, sizeof(keepAlive));
-	// Increase socket buffers
-	int rcvBuf = 256 * 1024; // 256KB
-	int sndBuf = 256 * 1024; // 256KB
-	setsockopt(_serverSocket, SOL_SOCKET, SO_RCVBUF, &rcvBuf, sizeof(rcvBuf));
-	setsockopt(_serverSocket, SOL_SOCKET, SO_SNDBUF, &sndBuf, sizeof(sndBuf));
+	setsockopt(_serverSocket, IPPROTO_TCP, TCP_KEEPIDLE, &keepIdle, sizeof(keepIdle));
+	setsockopt(_serverSocket, IPPROTO_TCP, TCP_KEEPINTVL, &keepInterval, sizeof(keepInterval));
+	setsockopt(_serverSocket, IPPROTO_TCP, TCP_KEEPCNT, &keepCount, sizeof(keepCount));
+
+	// Set non-blocking
+	setNonBlocking(_serverSocket);
+
 	struct sockaddr_in addr = {};
 	addr.sin_family = AF_INET;
 	addr.sin_port = htons(_port);
 	addr.sin_addr.s_addr = htonl(INADDR_ANY);
+
 	if (bind(_serverSocket, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
 		close(_serverSocket);
 		return false;
 	}
+
 	// Increase backlog for high concurrency
 	if (listen(_serverSocket, SOMAXCONN) < 0) {
 		close(_serverSocket);
 		return false;
 	}
+
 	return true;
 }
 
@@ -210,34 +225,39 @@ void Server::handleClientWrite(int clientFd) {
 
 	if (client.state != WRITING_RESPONSE || client.responseBuffer.empty())
 		return;
+
+	const size_t CHUNK_SIZE = 8192;
+	size_t toWrite = std::min(client.responseBuffer.size(), CHUNK_SIZE);
+
 	ssize_t sent = send(clientFd,
 						client.responseBuffer.c_str(),
-						client.responseBuffer.size(),
-						MSG_DONTWAIT);
+						toWrite,
+						MSG_NOSIGNAL);
+
 	if (sent > 0) {
 		client.responseBuffer.erase(0, sent);
 		client.lastActivity = time(NULL);
+
 		if (client.responseBuffer.empty()) {
-			if (shouldCloseConnection(client)) {
+			// Reset for next request
+			client.state = IDLE;
+			client.requestBuffer.clear();
+			client.contentLength = 0;
+			client.continueSent = false;
+
+			// Check connection status
+			bool shouldClose = false;
+			shouldClose |= (client.requestBuffer.find("HTTP/1.0") != std::string::npos);
+			shouldClose |= (client.requestBuffer.find("Connection: close") != std::string::npos);
+			shouldClose |= ((time(NULL) - client.lastActivity) > KEEP_ALIVE_TIMEOUT);
+
+			if (shouldClose)
 				closeConnection(clientFd);
-			} else {
-				client.state = IDLE;
-				client.requestBuffer.clear();
-			}
 		}
 	} else if (sent < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+		_logger.error("Write error: " + std::string(strerror(errno)));
 		closeConnection(clientFd);
 	}
-}
-
-bool Server::shouldCloseConnection(const ClientState &client) const {
-	if (client.requestBuffer.find("HTTP/1.1") == std::string::npos)
-		return true;
-	if (client.requestBuffer.find("Connection: close") != std::string::npos)
-		return true;
-	if ((time(NULL) - client.lastActivity) > KEEP_ALIVE_TIMEOUT)
-		return true;
-	return false;
 }
 
 void Server::sendBadRequestResponse(int clientFd) {
@@ -248,7 +268,13 @@ void Server::sendBadRequestResponse(int clientFd) {
 }
 
 void Server::closeConnection(int clientFd) {
-	shutdown(clientFd, SHUT_RDWR);
+	if (clientFd < 0)
+		return;
+	try {
+		shutdown(clientFd, SHUT_RDWR);
+	} catch (...) {
+		// Ignore shutdown errors
+	}
 	close(clientFd);
 	_clients.erase(clientFd);
 	updateMaxFileDescriptor();
