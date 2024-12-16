@@ -36,7 +36,10 @@ ServerGroup::~ServerGroup() {
 }
 
 void ServerGroup::addServer(const ServerConfig& config) {
-	Server* server = new Server(config);
+	ServerConfig serverConfig = config;
+	serverConfig.precomputePaths();
+
+	Server* server = new Server(serverConfig);
 	_servers.push_back(server);
 }
 

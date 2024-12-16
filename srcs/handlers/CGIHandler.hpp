@@ -24,8 +24,6 @@
 #include <cstdlib>
 #include <cerrno>
 
-#define BUFFER_SIZE (1024 * 1024)
-
 class CGIHandler {
 	private:
 		static Logger &_logger;
@@ -34,15 +32,17 @@ class CGIHandler {
 		std::string _tmpPath;
 
 		struct TempFiles {
-			FILE* inFile;
-			FILE* outFile;
-			int inFd;
-			int outFd;
-			TempFiles() : inFile(NULL), outFile(NULL), inFd(-1), outFd(-1) {}
+			mutable FILE* inFile;
+			mutable FILE* outFile;
+			mutable int inFd;
+			mutable int outFd;
+			mutable bool cleaned;
+
+			TempFiles() : inFile(NULL), outFile(NULL), inFd(-1), outFd(-1), cleaned(false) {}
 		};
 
 		void setupEnvironment(const HTTPRequest& request, const std::string& scriptPath);
-		void cleanupTempFiles(const TempFiles& files);
+		void cleanupTempFiles(const TempFiles &files);
 		char** createEnvArray();
 		bool handleTimeout(pid_t pid);
 		Response handleCGIOutput(const TempFiles& files);

@@ -12,10 +12,10 @@
 
 #include "Server.hpp"
 #include "../handlers/RequestHandler.hpp"
-#include "../utils/TempFileManager.hpp"
 #include "../utils/Utils.hpp"
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <unistd.h>
 #include <cerrno>
 #include <iostream>
@@ -32,6 +32,7 @@ Server::Server(const ServerConfig &config) :
 		_config(config),
 		_maxFd(0) {
 	_logger.configure("logs/server.log", INFO, true, true);
+	_config.precomputePaths();
 }
 
 Server::~Server() {
@@ -43,33 +44,41 @@ bool Server::initializeSocket() {
 	_serverSocket = socket(AF_INET, SOCK_STREAM, 0);
 	if (_serverSocket < 0)
 		return false;
-
+	// Set socket options
 	int opt = 1;
-	if (setsockopt(_serverSocket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
+	if (setsockopt(_serverSocket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0 ||
+		setsockopt(_serverSocket, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt)) < 0) {
 		close(_serverSocket);
 		return false;
 	}
-	if (setsockopt(_serverSocket, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt)) < 0) {
-		close(_serverSocket);
-		return false;
-	}
-
+	// Set socket to non-blocking
 	setNonBlocking(_serverSocket);
-
-	sockaddr_in addr = {};
+	// Set TCP options for better performance
+	int tcpQuickAck = 1;
+	setsockopt(_serverSocket, IPPROTO_TCP, TCP_QUICKACK, &tcpQuickAck, sizeof(tcpQuickAck));
+	int tcpNoDelay = 1;
+	setsockopt(_serverSocket, IPPROTO_TCP, TCP_NODELAY, &tcpNoDelay, sizeof(tcpNoDelay));
+	// Set keep-alive
+	int keepAlive = 1;
+	setsockopt(_serverSocket, SOL_SOCKET, SO_KEEPALIVE, &keepAlive, sizeof(keepAlive));
+	// Increase socket buffers
+	int rcvBuf = 256 * 1024; // 256KB
+	int sndBuf = 256 * 1024; // 256KB
+	setsockopt(_serverSocket, SOL_SOCKET, SO_RCVBUF, &rcvBuf, sizeof(rcvBuf));
+	setsockopt(_serverSocket, SOL_SOCKET, SO_SNDBUF, &sndBuf, sizeof(sndBuf));
+	struct sockaddr_in addr = {};
 	addr.sin_family = AF_INET;
 	addr.sin_port = htons(_port);
 	addr.sin_addr.s_addr = htonl(INADDR_ANY);
-
-	if (bind(_serverSocket, (sockaddr *) &addr, sizeof(addr)) < 0) {
+	if (bind(_serverSocket, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
 		close(_serverSocket);
 		return false;
 	}
+	// Increase backlog for high concurrency
 	if (listen(_serverSocket, SOMAXCONN) < 0) {
 		close(_serverSocket);
 		return false;
 	}
-
 	return true;
 }
 
@@ -82,21 +91,25 @@ void Server::setNonBlocking(int sockfd) {
 }
 
 void Server::handleClientData(int clientFd) {
-	char buffer[BUFFER_SIZE];
 	ClientState &client = _clients[clientFd];
 
+	if (client.state == WRITING_RESPONSE)
+		return;
+	char buffer[BUFFER_SIZE];
 	ssize_t bytesRead = recv(clientFd, buffer, sizeof(buffer), MSG_DONTWAIT);
-
 	if (bytesRead < 0) {
 		if (errno != EAGAIN && errno != EWOULDBLOCK)
-			return closeConnection(clientFd);
-		return;  // Would block, try again later
+			closeConnection(clientFd);
+		return;
 	}
-
-	if (bytesRead == 0)
-		return closeConnection(clientFd);
-
+	if (bytesRead == 0) {
+		closeConnection(clientFd);
+		return;
+	}
+	client.state = READING_REQUEST;
+	client.lastActivity = time(NULL);
 	client.requestBuffer.append(buffer, bytesRead);
+	// Process complete requests if available
 	processCompleteRequests(clientFd, client);
 }
 
@@ -104,60 +117,58 @@ void Server::processCompleteRequests(int clientFd, ClientState &client) {
 	size_t headerEnd = client.requestBuffer.find("\r\n\r\n");
 	if (headerEnd == std::string::npos)
 		return;
-
-	// Extract method from request
-	size_t firstSpace = client.requestBuffer.find(" ");
-	if (firstSpace == std::string::npos) {
+	if (client.requestBuffer.find("HTTP/1.1") == std::string::npos) {
 		sendBadRequestResponse(clientFd);
+		closeConnection(clientFd);
+		return;
+	}
+	size_t contentLengthPos = client.requestBuffer.find("Content-Length: ");
+	if (contentLengthPos != std::string::npos) {
+		size_t endOfLength = client.requestBuffer.find("\r\n", contentLengthPos);
+		size_t length = std::atol(client.requestBuffer.substr(
+				contentLengthPos + 16, endOfLength - (contentLengthPos + 16)).c_str());
+		// Wait for complete body
+		if (client.requestBuffer.length() < headerEnd + 4 + length)
+			return;
+	}
+	HTTPRequest request;
+	if (!request.parse(client.requestBuffer)) {
+		sendBadRequestResponse(clientFd);
+		client.state = WRITING_RESPONSE;
 		client.requestBuffer.clear();
 		return;
 	}
-
-	std::string method = client.requestBuffer.substr(0, firstSpace);
-
-	// For all methods, immediately process if we have complete request
-	if (method == "GET" || method == "HEAD" || method == "DELETE" || method == "PUT" || method == "POST") {
-		// For POST, verify we have complete body
-		if (method == "POST") {
-			std::string contentLength = client.requestBuffer.substr(
-					client.requestBuffer.find("Content-Length: ") + 16,
-					client.requestBuffer.find("\r\n",
-											  client.requestBuffer.find("Content-Length: ")) -
-					(client.requestBuffer.find("Content-Length: ") + 16)
-			);
-
-			size_t length = std::atol(contentLength.c_str());
-
-			// Only process if we have complete body
-			if (client.requestBuffer.length() < headerEnd + 4 + length) {
-				return;  // Wait for more data
-			}
-		}
-
-		processRequest(clientFd, client);
-		client.requestBuffer.clear();
-	} else {
-		// Handle unsupported methods
-		Response response(501);
-		response.addHeader("Content-Type", "text/html");
-		response.setBody("<html><body><h1>501 Not Implemented</h1></body></html>");
-		client.responseBuffer = response.toString();
-		client.requestBuffer.clear();
-	}
+	RequestHandler handler(_config);
+	Response response = handler.handleRequest(request);
+	client.responseBuffer = response.toString();
+	client.state = WRITING_RESPONSE;
+	client.requestBuffer.clear();
 }
 
 void Server::handleNewConnection() {
-	sockaddr_in addr = {};
+	struct sockaddr_in addr = {};
 	socklen_t addrLen = sizeof(addr);
 
-	int clientFd = accept(_serverSocket, (sockaddr *) &addr, &addrLen);
-	if (clientFd < 0) {
-		_logger.error("Failed to accept connection: " + std::string(strerror(errno)), "Server");
+	if (_clients.size() >= MAX_CLIENTS) {
+		// Accept and immediately close if too many connections
+		int tempFd = accept(_serverSocket, (struct sockaddr*)&addr, &addrLen);
+		if (tempFd >= 0) {
+			close(tempFd);
+			_logger.warn("Max clients reached, connection rejected");
+		}
 		return;
 	}
-
-	_logger.info("New connection accepted: " + Utils::numToString(clientFd), "Server");
+	int clientFd = accept(_serverSocket, (struct sockaddr*)&addr, &addrLen);
+	if (clientFd < 0) {
+		if (errno != EAGAIN && errno != EWOULDBLOCK)
+			_logger.error("Failed to accept connection: " + std::string(strerror(errno)));
+		return;
+	}
+	// Set new socket options
 	setNonBlocking(clientFd);
+	int keepAlive = 1;
+	setsockopt(clientFd, SOL_SOCKET, SO_KEEPALIVE, &keepAlive, sizeof(keepAlive));
+	// Initialize client state
 	_clients[clientFd] = ClientState();
 	updateMaxFileDescriptor();
 }
@@ -165,42 +176,36 @@ void Server::handleNewConnection() {
 void Server::handleClientWrite(int clientFd) {
 	ClientState &client = _clients[clientFd];
 
-	if (client.responseBuffer.empty())
+	if (client.state != WRITING_RESPONSE || client.responseBuffer.empty())
 		return;
-
-	size_t toWrite = std::min(client.writeBufferSize, client.responseBuffer.size());
-
-	ssize_t sent = send(clientFd, client.responseBuffer.c_str(), toWrite, MSG_DONTWAIT);
-
-	if (sent < 0) {
-		if (errno != EAGAIN && errno != EWOULDBLOCK)
-			return closeConnection(clientFd);
-		return;  // Would block, try again later
-	}
-
+	ssize_t sent = send(clientFd,
+						client.responseBuffer.c_str(),
+						client.responseBuffer.size(),
+						MSG_DONTWAIT);
 	if (sent > 0) {
 		client.responseBuffer.erase(0, sent);
-		if (client.responseBuffer.empty() && shouldCloseConnection(client))
-			closeConnection(clientFd);
+		client.lastActivity = time(NULL);
+		if (client.responseBuffer.empty()) {
+			if (shouldCloseConnection(client)) {
+				closeConnection(clientFd);
+			} else {
+				client.state = IDLE;
+				client.requestBuffer.clear();
+			}
+		}
+	} else if (sent < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+		closeConnection(clientFd);
 	}
 }
 
 bool Server::shouldCloseConnection(const ClientState &client) const {
-	return client.requestBuffer.find("HTTP/1.0") != std::string::npos ||
-		   client.requestBuffer.find("Connection: close") != std::string::npos;
-}
-
-void Server::processRequest(int clientFd, ClientState &client) {
-	HTTPRequest request;
-	if (!request.parse(client.requestBuffer))
-		return sendBadRequestResponse(clientFd);
-
-	// Set temp file path if exists
-	request.setTempFilePath(client.tempFilePath);
-
-	RequestHandler handler(_config);
-	Response response = handler.handleRequest(request);
-	client.responseBuffer = response.toString();
+	if (client.requestBuffer.find("HTTP/1.1") == std::string::npos)
+		return true;
+	if (client.requestBuffer.find("Connection: close") != std::string::npos)
+		return true;
+	if ((time(NULL) - client.lastActivity) > KEEP_ALIVE_TIMEOUT)
+		return true;
+	return false;
 }
 
 void Server::sendBadRequestResponse(int clientFd) {
@@ -211,22 +216,25 @@ void Server::sendBadRequestResponse(int clientFd) {
 }
 
 void Server::closeConnection(int clientFd) {
-	ClientState &client = _clients[clientFd];
-	if (client.tempFileFd != -1) {
-		close(client.tempFileFd);
-	}
-	if (!client.tempFilePath.empty()) {
-		TempFileManager::deleteTempFile(client.tempFilePath);
-	}
+	shutdown(clientFd, SHUT_RDWR);
 	close(clientFd);
 	_clients.erase(clientFd);
+	updateMaxFileDescriptor();
 }
 
 void Server::stop() {
-	for (std::map<int, ClientState>::iterator it = _clients.begin(); it != _clients.end(); ++it)
+	for (std::map<int, ClientState>::iterator it = _clients.begin();
+		 it != _clients.end(); ++it) {
+		shutdown(it->first, SHUT_RDWR);
 		close(it->first);
+	}
 	_clients.clear();
-	close(_serverSocket);
+	if (_serverSocket >= 0) {
+		shutdown(_serverSocket, SHUT_RDWR);
+		close(_serverSocket);
+		_serverSocket = -1;
+	}
+	_maxFd = 0;
 }
 
 void Server::initialize() {
@@ -272,10 +280,6 @@ void Server::checkIdleConnections() {
 
 bool Server::isConnectionIdle(time_t currentTime, const ClientState &client) const {
 	return (currentTime - client.lastActivity) > IDLE_TIMEOUT;
-}
-
-Server::ClientState::ClientState() : writeBufferSize(DEFAULT_WRITE_BUFFER_SIZE), lastActivity(time(NULL)), tempFileFd(-1) {
-	writeBuffer.reserve(writeBufferSize);
 }
 
 void Server::updateMaxFileDescriptor() {

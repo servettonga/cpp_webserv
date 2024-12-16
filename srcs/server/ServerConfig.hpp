@@ -67,24 +67,54 @@ struct ServerConfig {
 		error_pages[500] = "/500.html";
 	}
 
-	// Helper method to find location config for a given path
-	const LocationConfig* getLocation(const std::string& path) const {
-		const LocationConfig* bestMatch = NULL;
-		size_t bestLength = 0;
+	// Copy constructor
+	ServerConfig(const ServerConfig &other) :
+			host(other.host),
+			port(other.port),
+			server_names(other.server_names),
+			root(other.root),
+			index(other.index),
+			client_timeout(other.client_timeout),
+			client_max_body_size(other.client_max_body_size),
+			error_pages(other.error_pages),
+			locations(other.locations),
+			cgi_handlers(other.cgi_handlers) {
+		cgiExtCache.clear();
+	}
 
-		for (std::vector<LocationConfig>::const_iterator it = locations.begin();
-			 it != locations.end(); ++it) {
-			if (path.find(it->path) == 0 && it->path.length() > bestLength) {
-				bestMatch = &(*it);
-				bestLength = it->path.length();
-			}
+	// Add assignment operator
+	ServerConfig &operator=(const ServerConfig &other) {
+		if (this != &other) {
+			host = other.host;
+			port = other.port;
+			server_names = other.server_names;
+			root = other.root;
+			index = other.index;
+			client_timeout = other.client_timeout;
+			client_max_body_size = other.client_max_body_size;
+			error_pages = other.error_pages;
+			locations = other.locations;
+			cgi_handlers = other.cgi_handlers;
+			cgiExtCache.clear();
 		}
-		return bestMatch;
+		return *this;
+	}
+
+	// Add cache for commonly accessed values
+	mutable std::map<std::string, bool> cgiExtCache;
+
+	// Pre-compute just CGI extensions
+	void precomputePaths() {
+		// Pre-compute CGI extensions
+		for (std::map<std::string, std::string>::const_iterator it = cgi_handlers.begin();
+			 it != cgi_handlers.end(); ++it) {
+			cgiExtCache[it->first] = true;
+		}
 	}
 
 	// Helper method to check if file extension is handled by CGI
 	bool isCGIExtension(const std::string& extension) const {
-		return cgi_handlers.find(extension) != cgi_handlers.end();
+		return cgiExtCache.find(extension) != cgiExtCache.end();
 	}
 };
 

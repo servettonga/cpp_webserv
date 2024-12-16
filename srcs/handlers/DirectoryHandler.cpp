@@ -17,11 +17,11 @@
 #include <ctime>
 #include <sstream>
 
-Response DirectoryHandler::handleDirectory(const std::string& dirPath, const LocationConfig& location, const std::string& requestPath) {
+Response DirectoryHandler::handleDirectory(const std::string &dirPath, const LocationConfig &location, const std::string& requestPath) {
 	if (!location.autoindex)
 		return Response::makeErrorResponse(403);
 
-	DIR* dir = opendir(dirPath.c_str());
+	DIR *dir = opendir(dirPath.c_str());
 	if (!dir)
 		return Response::makeErrorResponse(404);
 	closedir(dir);

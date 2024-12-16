@@ -19,7 +19,9 @@
 #include <string>
 #include <sys/select.h>
 
-#define BUFFER_SIZE (1024 * 1024)	// 128KB
+#define BUFFER_SIZE 8192
+#define KEEP_ALIVE_TIMEOUT 60    // 60 seconds for keep-alive connections
+#define IDLE_TIMEOUT 120         // 120 seconds for idle connections
 
 class Server {
 	public:
@@ -29,33 +31,34 @@ class Server {
 		void initialize();
 		void stop();
 
-		struct ClientState {
-			std::string requestBuffer;
-			std::string responseBuffer;
-			std::vector<char> writeBuffer;
-			size_t writeBufferSize;
-			time_t lastActivity;
-			std::string tempFilePath;
-			int tempFileFd;
-
-			ClientState();
-		};
-
 		void handleNewConnection();
 		void handleExistingConnections(fd_set &readSet, fd_set &writeSet);
 		int getServerSocket() const { return _serverSocket; }
 		int getMaxFd() const { return _maxFd; }
+
+		enum ConnectionState {
+			IDLE,
+			READING_REQUEST,
+			WRITING_RESPONSE
+		};
+		struct ClientState {
+			ConnectionState state;
+			std::string requestBuffer;
+			std::string responseBuffer;
+			time_t lastActivity;
+
+			ClientState() : state(IDLE), lastActivity(time(NULL)) {}
+		};
 		const std::map<int, ClientState> &getClients() const { return _clients; }
 
 	private:
-		static const size_t DEFAULT_WRITE_BUFFER_SIZE = 1024 * 1024;  // 1MB
+		static const int MAX_CLIENTS = FD_SETSIZE - 10;  // Reserve some FDs for system use
 
 		// Server configuration
 		const std::string _host;
 		const int _port;
 		int _serverSocket;
-		const ServerConfig _config;
-		static const int IDLE_TIMEOUT = 300;	// 5 minutes in seconds
+		ServerConfig _config;
 		static Logger &_logger;
 
 		// Socket management
@@ -78,7 +81,6 @@ class Server {
 
 		// Request processing
 		void processCompleteRequests(int clientFd, ClientState &client);
-		void processRequest(int clientFd, ClientState &client);
 		void sendBadRequestResponse(int clientFd);
 };
 

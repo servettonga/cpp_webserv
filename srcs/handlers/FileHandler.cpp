@@ -169,17 +169,12 @@ std::string FileHandler::sanitizeFilename(const std::string &filename) {
 }
 
 std::string FileHandler::constructFilePath(const std::string &uri, const LocationConfig &location) {
-	std::cout << "\nPath Construction:" << std::endl;
-	std::cout << "URI: " << uri << std::endl;
-	std::cout << "Location path: " << location.path << std::endl;
-	std::cout << "Location root: " << location.root << std::endl;
 	std::string decodedUri = urlDecode(uri);
 	std::string path = location.root;
-
+	// Remove trailing slash from root if present
 	if (!path.empty() && path[path.length()-1] == '/')
 		path = path.substr(0, path.length()-1);
-
-	// For non-root locations, append the location path only for /static-like locations
+	// For non-root locations in www directory
 	if (location.path != "/" && !location.path.empty() && location.root == "www") {
 		std::string locationPath = location.path;
 		if (locationPath[0] == '/')
@@ -188,7 +183,7 @@ std::string FileHandler::constructFilePath(const std::string &uri, const Locatio
 			path += '/';
 		path += locationPath;
 	}
-	// Get the relative path
+	// Process the relative path
 	std::string relativePath;
 	if (decodedUri.find(location.path) == 0) {
 		if (decodedUri != location.path) {
@@ -197,13 +192,12 @@ std::string FileHandler::constructFilePath(const std::string &uri, const Locatio
 				relativePath = relativePath.substr(1);
 		}
 	}
-	// Add the relative path if exists
+	// Combine paths
 	if (!relativePath.empty()) {
 		if (!path.empty() && path[path.length()-1] != '/')
 			path += '/';
 		path += relativePath;
 	}
-	std::cout << "Final path: " << path << std::endl;
 	return path;
 }
 
@@ -220,9 +214,12 @@ bool FileHandler::isValidFilePath(const std::string &path) {
 }
 
 std::string FileHandler::getType(const std::string &path) {
+	if (path == "/" || path.empty())
+		return "text/html";
+
 	size_t dot = path.find_last_of('.');
 	if (dot == std::string::npos)
-		return "application/octet-stream";
+		return "text/html";
 
 	std::string ext = path.substr(dot + 1);
 
@@ -249,5 +246,5 @@ std::string FileHandler::getType(const std::string &path) {
 	if (ext == "tar") return "application/x-tar";
 	if (ext == "gz") return "application/gzip";
 
-	return "application/octet-stream";
+	return "text/plain";
 }
