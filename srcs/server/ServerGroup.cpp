@@ -65,21 +65,22 @@ void ServerGroup::handleEvents(fd_set& readSet, fd_set& writeSet) {
 		 it != _servers.end(); ++it) {
 		Server* server = *it;
 		int serverFd = server->getServerSocket();
-		// Add server socket if valid
-		if (serverFd >= 0)
+		if (serverFd >= 0) {
 			FD_SET(serverFd, &_masterSet);
-		// Add client sockets
+		}
+
+		// Add client sockets to write set if they have pending data
 		const std::map<int, Server::ClientState>& clients = server->getClients();
 		for (std::map<int, Server::ClientState>::const_iterator cit = clients.begin();
 			 cit != clients.end(); ++cit) {
 			if (cit->first >= 0 && cit->first < FD_SETSIZE) {
 				FD_SET(cit->first, &_masterSet);
-				if (!cit->second.responseBuffer.empty())
+				if (cit->second.state == Server::WRITING_RESPONSE) {
 					FD_SET(cit->first, &_writeSet);
+				}
 			}
 		}
 	}
-
 	updateMaxFd();
 }
 

@@ -34,6 +34,7 @@ Response RequestHandler::handleRequest(const HTTPRequest &request) {
 	if (!isMethodAllowed(req.getMethod(), *location)) {
 		Response error(405);
 		error.addHeader("Content-Type", "text/html");
+		error.addHeader("Connection", "close");
 		std::string allow;
 		for (std::vector<std::string>::const_iterator it = location->methods.begin();
 			 it != location->methods.end(); ++it) {
@@ -194,41 +195,39 @@ Response RequestHandler::handlePOST(const HTTPRequest &request) const {
 
 	if (!location)
 		return Response::makeErrorResponse(404);
-	if (request.getBody().size() > location->client_max_body_size)
+
+	// Check body size limit (skip for zero-length body)
+	if (!request.getBody().empty() && request.getBody().size() > location->client_max_body_size)
 		return Response::makeErrorResponse(413);
 
-	// Check for CGI handlers first
+	// CGI handling first
 	size_t extPos = path.find_last_of('.');
 	if (extPos != std::string::npos) {
 		std::string ext = path.substr(extPos);
-		std::map<std::string, std::string>::const_iterator handlerIt =
-				_config.cgi_handlers.find(ext);
+		std::map<std::string, std::string>::const_iterator handlerIt = _config.cgi_handlers.find(ext);
 		if (handlerIt != _config.cgi_handlers.end()) {
-			std::string fullPath = FileHandler::constructFilePath(path, *location);
 			CGIHandler handler;
-			HTTPRequest req(request);
-			req.setConfig(&_config);
-			return handler.executeCGI(req, handlerIt->second, fullPath);
+			return handler.executeCGI(request, handlerIt->second,
+									  FileHandler::constructFilePath(path, *location));
 		}
 	}
 
-	// Handle other POST types
+	// File upload handling
 	const std::string& contentType = request.getHeader("Content-Type");
 	if (contentType.find("multipart/form-data") != std::string::npos) {
-		return FileHandler::handleFileUpload(request, *location);
+		if (!location->path.empty()) {
+			return FileHandler::handleFileUpload(request, *location);
+		}
+		return Response::makeErrorResponse(403);
 	}
 
-	// Remove content-type check for standard POST
-	std::string fullPath = FileHandler::constructFilePath(path, *location);
-	CGIHandler handler;
-	HTTPRequest req(request);
-	req.setConfig(&_config);
-	std::map<std::string, std::string>::const_iterator cgiIt = _config.cgi_handlers.find(".bla");
-	if (cgiIt != _config.cgi_handlers.end()) {
-		return handler.executeCGI(req, cgiIt->second, fullPath);
+	// Regular POST request
+	Response response(200);
+	response.addHeader("Content-Type", "text/plain");
+	if (!request.getBody().empty()) {
+		response.setBody(request.getBody());
 	}
-
-	return Response::makeErrorResponse(400);
+	return response;
 }
 
 Response RequestHandler::handleDELETE(const HTTPRequest &request) const {

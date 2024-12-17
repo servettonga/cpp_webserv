@@ -18,7 +18,9 @@
 
 class HTTPRequest {
 	public:
-		HTTPRequest() : _config(NULL) {}
+		HTTPRequest() : _config(NULL), _isChunked(false) {}
+		HTTPRequest(const HTTPRequest &other);
+		HTTPRequest &operator=(const HTTPRequest &other);
 
 		// Core parsing
 		bool parse(const std::string &rawRequest);
@@ -30,6 +32,7 @@ class HTTPRequest {
 		const std::string &getPath() const;
 		const std::string &getVersion() const;
 		const std::string &getBody() const;
+		std::string& getBody() { return _body; };
 		const std::map<std::string, std::string> &getHeaders() const;
 		void setTempFilePath(const std::string& path);
 		const std::string &getTempFilePath() const;
@@ -40,10 +43,18 @@ class HTTPRequest {
 		std::string getHeader(const std::string &name) const;
 		static std::string unchunkData(const std::string& chunkedData);
 
+		// Query string
+		std::string getQueryString() const;
+		bool parseHeaders(const std::string &headerSection);
+		void clearBody() {
+			std::string().swap(_body);
+		}
+
 	private:
 		// Request components
 		std::string _method;
 		std::string _path;
+		std::string _queryString;
 		std::string _version;
 		std::map<std::string, std::string> _headers;
 		std::string _body;
@@ -53,11 +64,8 @@ class HTTPRequest {
 		// Chunked transfer encoding
 		bool _isChunked;
 
-		bool parseChunkedBody(const std::string& rawRequest, size_t bodyStart);
-
 		// Parsing helpers
 		bool parseRequestLine(const std::string &line);
-		bool parseHeaders(const std::string &headerSection);
 		static std::string trimWhitespace(const std::string &str);
 };
 

@@ -16,6 +16,7 @@
 #include <cstring>
 #include <unistd.h>
 #include <sys/socket.h>
+#include <algorithm>
 
 bool Utils::fileExists(const std::string& path) {
 	struct stat st;
@@ -120,4 +121,10 @@ bool Utils::setReuseAddr(int fd) {
 
 std::string Utils::getErrorString(int errnum) {
 	return std::string(strerror(errnum));
+}
+
+const std::string Utils::toUpper(const std::string string) {
+	std::string upperString = string;
+	std::transform(upperString.begin(), upperString.end(), upperString.begin(), ::toupper);
+	return upperString.c_str();
 }

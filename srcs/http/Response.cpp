@@ -13,14 +13,17 @@
 #include "Response.hpp"
 #include "../utils/Utils.hpp"
 #include <sstream>
+#include <cerrno>
+#include <sys/socket.h>
+#include <csignal>
 
-Response::Response(int statusCode, const std::string &serverName) :
-	_statusCode(statusCode), _isChunked(false), _isRawOutput(false) {
-	_headers["Server"] = serverName;
-	_headers["Content-Type"] = "text/plain";
-	if (statusCode == 100)
-		_rawOutput = "HTTP/1.1 100 Continue\r\n\r\n";
-}
+//Response::Response(int statusCode, const std::string &serverName) :
+//	_statusCode(statusCode), _isChunked(false), _isRawOutput(false) {
+//	_headers["Server"] = serverName;
+//	_headers["Content-Type"] = "text/plain";
+//	if (statusCode == 100)
+//		_rawOutput = "HTTP/1.1 100 Continue\r\n\r\n";
+//}
 
 Response::~Response() {}
 
@@ -196,4 +199,56 @@ int Response::getStatusCode() { return _statusCode; }
 
 void Response::clearHeaders() {
 
+}
+
+void Response::setFileDescriptor(int fd) {
+	closeFileDescriptor(); // Close existing fd if any
+	_fileDescriptor = fd;
+	_isStreaming = true;
+	_bytesWritten = 0;
+}
+
+bool Response::writeNextChunk(int clientFd) {
+	if (!_isStreaming || _fileDescriptor < 0)
+		return false;
+
+	try {
+		// Send headers first if not sent
+		if (!_isHeadersSent) {
+			std::string headers = getHeadersString();
+			ssize_t headersSent = send(clientFd, headers.c_str(), headers.length(), MSG_NOSIGNAL);
+			if (headersSent < 0) {
+				if (errno == EAGAIN || errno == EWOULDBLOCK)
+					return true;
+				return false;
+			}
+			_isHeadersSent = true;
+		}
+
+		// Send file content
+		char buffer[8192];
+		ssize_t bytesRead = read(_fileDescriptor, buffer, sizeof(buffer));
+
+		if (bytesRead > 0) {
+			ssize_t bytesWritten = send(clientFd, buffer, bytesRead, MSG_NOSIGNAL);
+			if (bytesWritten < 0) {
+				if (errno == EAGAIN || errno == EWOULDBLOCK)
+					return true;
+				return false;
+			}
+			_bytesWritten += bytesWritten;
+			return true;
+		} else if (bytesRead == 0) {
+			// EOF reached
+			closeFileDescriptor();
+			return false;
+		} else if (errno == EAGAIN || errno == EWOULDBLOCK) {
+			return true;
+		}
+	} catch (const std::exception& e) {
+		closeFileDescriptor();
+		return false;
+	}
+
+	return false;
 }

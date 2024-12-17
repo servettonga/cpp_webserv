@@ -15,12 +15,13 @@
 
 #include "ServerConfig.hpp"
 #include "../utils/Logger.hpp"
+#include "../http/Response.hpp"
 #include <map>
 #include <string>
 #include <sys/select.h>
 #include <sstream>
 
-#define BUFFER_SIZE 8192
+#define BUFFER_SIZE 65536
 #define KEEP_ALIVE_TIMEOUT 60    // 60 seconds for keep-alive connections
 #define IDLE_TIMEOUT 120         // 120 seconds for idle connections
 
@@ -49,12 +50,30 @@ class Server {
 			time_t lastActivity;
 			size_t contentLength;
 			bool continueSent;
+			bool keepAlive;
+			bool isChunked;
+			bool waitForEOF;
+			Response response;
+			bool isStreaming;
+			size_t bytesWritten;
 
-			ClientState() : state(IDLE),
-							lastActivity(time(NULL)),
-							contentLength(0),
-							continueSent(false) {}
-
+			ClientState() :
+					state(IDLE),
+					lastActivity(time(NULL)),
+					contentLength(0),
+					continueSent(false),
+					keepAlive(true),
+					isChunked(false),
+					waitForEOF(false),
+					response(200),
+					isStreaming(false),
+					bytesWritten(0) {}
+			void clear() {
+				std::string().swap(requestBuffer);
+				std::string().swap(responseBuffer);
+				contentLength = 0;
+				bytesWritten = 0;
+			}
 		};
 		const std::map<int, ClientState> &getClients() const { return _clients; }
 

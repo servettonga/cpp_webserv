@@ -15,6 +15,8 @@
 
 #include <string>
 #include <map>
+#include <csignal>
+#include "../utils/Utils.hpp"
 
 class Response {
 	private:
@@ -25,15 +27,31 @@ class Response {
 		bool _isChunked;
 		bool _isRawOutput;
 		std::string _rawOutput;
+		int _fileDescriptor;
+		size_t _bytesWritten;
+		bool _isStreaming;
+		bool _isHeadersSent;
 
 		// Helper methods
 		void updateContentLength();
 		std::string getStatusText() const;
 
 	public:
-		explicit Response(int statusCode = 200, const std::string &serverName = "webserv/1.1");
+		explicit Response(int statusCode = 200, const std::string &serverName = "webserv/1.1") :
+				_statusCode(statusCode),
+				_isChunked(false),
+				_isRawOutput(false),
+				_fileDescriptor(-1),
+				_bytesWritten(0),
+				_isStreaming(false),
+				_isHeadersSent(false) {
+			_headers["Server"] = serverName;
+			if (statusCode == 100) {
+				_rawOutput = "HTTP/1.1 100 Continue\r\n\r\n";
+				_isRawOutput = true;
+			}
+		}
 		~Response();
-
 		void setStatusCode(int code);
 		void setBody(const std::string &body);
 		std::string getBody();
@@ -51,6 +69,25 @@ class Response {
 		std::map<std::string, std::string> getHeaders();
 
 		int getStatusCode();
+		void setFileDescriptor(int fd);
+		bool writeNextChunk(int clientFd);
+		bool isFileDescriptor() const { return _fileDescriptor >= 0; }
+		void closeFileDescriptor() {
+			if (_fileDescriptor >= 0) {
+				close(_fileDescriptor);
+				_fileDescriptor = -1;
+			}
+		}
+		int getFileDescriptor() const { return _fileDescriptor; }
+		std::string getHeadersString() const {
+			std::string headers = "HTTP/1.1 " + Utils::numToString(_statusCode) + " " + getStatusText() + "\r\n";
+			for (std::map<std::string, std::string>::const_iterator it = _headers.begin();
+				 it != _headers.end(); ++it) {
+				headers += it->first + ": " + it->second + "\r\n";
+			}
+			headers += "\r\n";
+			return headers;
+		}
 };
 
 #endif

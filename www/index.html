@@ -159,7 +159,7 @@
                             <div class="mb-3">
                                 <div class="upload-icon mb-2">📤</div>
                                 <p class="mb-0" id="uploadText">Drag & drop a file here or click to select</p>
-                                <small class="text-muted">Maximum file size: 25MB</small>
+                                <small class="text-muted">Maximum file size: 200MB</small>
                             </div>
                         </form>
                     </div>
@@ -231,8 +231,8 @@
     }
 
     function handleUpload(file) {
-        if (file.size > 25 * 1024 * 1024) {
-            showModal('Error', 'File size exceeds 25MB limit', 'error');
+        if (file.size > 200 * 1024 * 1024) {
+            showModal('Error', 'File size exceeds 200MB limit', 'error');
             return;
         }
 

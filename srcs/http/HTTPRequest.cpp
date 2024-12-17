@@ -6,14 +6,42 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 23:07:40 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/29 17:30:36 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/17 11:50:33 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "HTTPRequest.hpp"
 #include "../utils/Utils.hpp"
+#include <cstring>
 #include <sstream>
 #include <cstdlib>
+
+HTTPRequest::HTTPRequest(const HTTPRequest &other) {
+	_method = other._method;
+	_path = other._path;
+	_queryString = other._queryString;
+	_version = other._version;
+	_headers = other._headers;
+	_body = other._body;
+	_config = other._config;
+	_isChunked = other._isChunked;
+	_tempFilePath = other._tempFilePath;
+}
+
+HTTPRequest &HTTPRequest::operator=(const HTTPRequest &other) {
+	if (this != &other) {
+		_method = other._method;
+		_path = other._path;
+		_queryString = other._queryString;
+		_version = other._version;
+		_headers = other._headers;
+		_body = other._body;
+		_config = other._config;
+		_isChunked = other._isChunked;
+		_tempFilePath = other._tempFilePath;
+	}
+	return *this;
+}
 
 bool HTTPRequest::parse(const std::string &rawRequest) {
 	size_t firstLineEnd = rawRequest.find("\r\n");
@@ -71,7 +99,18 @@ bool HTTPRequest::parseRequestLine(const std::string &line) {
 		return false;
 
 	_method = line.substr(0, first);
-	_path = line.substr(first + 1, last - first - 1);
+
+	// Extract path and query string
+	std::string fullPath = line.substr(first + 1, last - first - 1);
+	size_t queryPos = fullPath.find('?');
+	if (queryPos != std::string::npos) {
+		_path = fullPath.substr(0, queryPos);
+		_queryString = fullPath.substr(queryPos + 1);
+	} else {
+		_path = fullPath;
+		_queryString = "";
+	}
+
 	_version = line.substr(last + 1);
 
 	return true;
@@ -143,40 +182,54 @@ const void *HTTPRequest::getConfig() const { return _config; }
 bool HTTPRequest::isChunked() const { return _isChunked; }
 
 std::string HTTPRequest::unchunkData(const std::string& chunkedData) {
+	// Pre-allocate result buffer to avoid reallocations
 	std::string result;
+	result.reserve(chunkedData.length());  // Worst case size
 	size_t pos = 0;
+	const size_t len = chunkedData.length();
 
-	while (pos < chunkedData.length()) {
-		// Find chunk size
+	while (pos < len) {
+		// Find chunk size end
 		size_t endOfSize = chunkedData.find("\r\n", pos);
 		if (endOfSize == std::string::npos)
 			throw std::runtime_error("Invalid chunk format");
 
-		// Parse chunk size (hex)
-		std::string sizeHex = chunkedData.substr(pos, endOfSize - pos);
-		std::istringstream iss(sizeHex);
-		size_t chunkSize;
-		iss >> std::hex >> chunkSize;
+		// Parse chunk size more efficiently
+		size_t chunkSize = 0;
+		for (size_t i = pos; i < endOfSize; ++i) {
+			char c = chunkedData[i];
+			if (c >= '0' && c <= '9')
+				chunkSize = (chunkSize << 4) | (c - '0');
+			else if (c >= 'a' && c <= 'f')
+				chunkSize = (chunkSize << 4) | (c - 'a' + 10);
+			else if (c >= 'A' && c <= 'F')
+				chunkSize = (chunkSize << 4) | (c - 'A' + 10);
+			else
+				break;  // Handle optional chunk extensions
+		}
+
 		if (chunkSize == 0) // End of chunks
 			break;
-		pos = endOfSize + 2;	// Skip size line
-		result.append(chunkedData.substr(pos, chunkSize));	// Add chunk data to result
-		pos += chunkSize + 2;	// Skip chunk data and CRLF
+
+		// Calculate positions
+		size_t dataStart = endOfSize + 2;  // Skip CRLF after size
+		if (dataStart + chunkSize + 2 > len) // +2 for trailing CRLF
+			throw std::runtime_error("Incomplete chunk data");
+
+		// Append chunk data directly
+		result.append(chunkedData.data() + dataStart, chunkSize);
+
+		// Move to next chunk
+		pos = dataStart + chunkSize + 2;  // Skip data and CRLF
 	}
 
 	return result;
 }
 
-bool HTTPRequest::parseChunkedBody(const std::string& rawRequest, size_t bodyStart) {
-	std::string chunkedData = rawRequest.substr(bodyStart);
-	try {
-		_body = unchunkData(chunkedData);
-		return true;
-	} catch (...) {
-		return false;
-	}
-}
-
 void HTTPRequest::setTempFilePath(const std::string &path) { _tempFilePath = path; }
 
 const std::string &HTTPRequest::getTempFilePath() const { return _tempFilePath; }
+
+std::string HTTPRequest::getQueryString() const {
+	return _queryString;
+}

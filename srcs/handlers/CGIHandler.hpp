@@ -23,6 +23,7 @@
 #include <sys/wait.h>
 #include <cstdlib>
 #include <cerrno>
+#include <fcntl.h>
 
 class CGIHandler {
 	private:
@@ -32,21 +33,39 @@ class CGIHandler {
 		std::string _tmpPath;
 
 		struct TempFiles {
-			mutable FILE* inFile;
-			mutable FILE* outFile;
-			mutable int inFd;
-			mutable int outFd;
-			mutable bool cleaned;
+			FILE* inputFile;
+			FILE* outputFile;
+			std::string inputPath;
+			std::string outputPath;
+			bool cleaned;
 
-			TempFiles() : inFile(NULL), outFile(NULL), inFd(-1), outFd(-1), cleaned(false) {}
+			TempFiles() : inputFile(NULL), outputFile(NULL), cleaned(false) {}
+			~TempFiles() {
+				cleanup();
+			}
+
+			void cleanup() {
+				if (!cleaned) {
+					if (inputFile) fclose(inputFile);
+					if (outputFile) fclose(outputFile);
+					if (!inputPath.empty()) unlink(inputPath.c_str());
+					if (!outputPath.empty()) unlink(outputPath.c_str());
+					cleaned = true;
+				}
+			}
 		};
+
+		#define MAX_CGI_OUTPUT_SIZE 1024 * 1024
 
 		void setupEnvironment(const HTTPRequest& request, const std::string& scriptPath);
 		void cleanupTempFiles(TempFiles &files);
 		char** createEnvArray();
 		bool handleTimeout(pid_t pid);
-		Response handleCGIOutput(TempFiles &files);
+		Response handleCGIOutput(int output_fd, pid_t pid, int timeout_seconds);
 		Response createErrorResponse(int code, const std::string& message);
+		void setNonBlocking(int fd) const;
+		Response parseCGIOutput(const std::string& output);
+		void cleanup(char** env);
 
 	public:
 		CGIHandler();

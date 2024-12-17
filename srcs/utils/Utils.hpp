@@ -45,6 +45,8 @@ class Utils {
 		static bool setNonBlocking(int fd);
 		static bool setReuseAddr(int fd);
 		static std::string getErrorString(int errnum);
+
+		static const std::string toUpper(const std::string string);
 };
 
 #endif

@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/11/02 19:53:07 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/16 12:38:11 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/22 18:19:10 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -17,6 +17,8 @@
 #include <climits>
 #include <stdio.h>
 #include <sys/select.h>
+#include <algorithm>
+#include <iostream>
 
 Logger &CGIHandler::_logger = Logger::getInstance();
 
@@ -37,245 +39,192 @@ Response CGIHandler::executeCGI(const HTTPRequest& request,
 								const std::string& cgiPath,
 								const std::string& scriptPath) {
 	setupEnvironment(request, scriptPath);
-	TempFiles files;
-
-	files.inFile = tmpfile();
-	files.outFile = tmpfile();
-	if (!files.inFile || !files.outFile) {
-		if (files.inFile) fclose(files.inFile);
-		_logger.error("Failed to create temp files");
-		return createErrorResponse(500, "Failed to create temp files");
+	char** env = createEnvArray();
+	if (!env) {
+		return createErrorResponse(500, "Failed to setup environment");
 	}
 
-	files.inFd = fileno(files.inFile);
-	files.outFd = fileno(files.outFile);
+	// Create pipes
+	int output_pipe[2];
+	if (pipe(output_pipe) < 0) {
+		cleanup(env);
+		return createErrorResponse(500, "Failed to create pipe");
+	}
 
-	// Handle request body for POST
-	if (request.getMethod() == "POST") {
-		const std::string& body = request.getBody();
-		_logger.info("Writing POST body, length: " + Utils::numToString(body.length()));
+	// Create temp file for input
+	char tempPath[] = "/tmp/webserv_cgi_XXXXXX";
+	int tempFd = mkstemp(tempPath);
+	if (tempFd < 0) {
+		cleanup(env);
+		close(output_pipe[0]);
+		close(output_pipe[1]);
+		return createErrorResponse(500, "Failed to create temp file");
+	}
 
-		// Always write body data regardless of content type
-		if (!body.empty()) {
-			const size_t chunkSize = 8192;
-			size_t remaining = body.length();
-			size_t offset = 0;
+	// Write body to temp file
+	const std::string& body = request.getBody();
+	const size_t CHUNK_SIZE = 65536;
+	size_t totalWritten = 0;
 
-			while (remaining > 0) {
-				size_t toWrite = std::min(remaining, chunkSize);
-				ssize_t written = write(files.inFd, body.c_str() + offset, toWrite);
+	while (totalWritten < body.length()) {
+		size_t remaining = body.length() - totalWritten;
+		size_t toWrite = std::min(CHUNK_SIZE, remaining);
 
-				if (written < 0) {
-					_logger.error("Failed to write request body: " + std::string(strerror(errno)));
-					cleanupTempFiles(files);
-					return createErrorResponse(500, "Failed to write request body");
-				}
-
-				offset += written;
-				remaining -= written;
-			}
-
-			if (lseek(files.inFd, 0, SEEK_SET) < 0) {
-				_logger.error("Failed to seek input file: " + std::string(strerror(errno)));
-				cleanupTempFiles(files);
-				return createErrorResponse(500, "Failed to seek input file");
-			}
+		ssize_t written = write(tempFd, body.c_str() + totalWritten, toWrite);
+		if (written < 0) {
+			cleanup(env);
+			close(tempFd);
+			close(output_pipe[0]);
+			close(output_pipe[1]);
+			unlink(tempPath);
+			return createErrorResponse(500, "Failed to write to temp file");
 		}
+		totalWritten += written;
 	}
+
+	// Reset file position and clear request body
+	lseek(tempFd, 0, SEEK_SET);
+	const_cast<HTTPRequest&>(request).clearBody();
 
 	pid_t pid = fork();
-	if (pid == -1) {
-		_logger.error("Fork failed: " + std::string(strerror(errno)));
-		cleanupTempFiles(files);
+	if (pid < 0) {
+		cleanup(env);
+		close(tempFd);
+		close(output_pipe[0]);
+		close(output_pipe[1]);
+		unlink(tempPath);
 		return createErrorResponse(500, "Fork failed");
 	}
 
-	if (pid == 0) {  // Child process
-		if (dup2(files.inFd, STDIN_FILENO) == -1 ||
-			dup2(files.outFd, STDOUT_FILENO) == -1) {
-			_logger.error("dup2 failed: " + std::string(strerror(errno)));
-			exit(1);
+	if (pid == 0) {
+		// Child process
+		close(output_pipe[0]);
+
+		if (dup2(tempFd, STDIN_FILENO) < 0 ||
+			dup2(output_pipe[1], STDOUT_FILENO) < 0) {
+			_exit(1);
 		}
 
-		// Close unused file descriptors
-		close(files.inFd);
-		close(files.outFd);
+		close(tempFd);
+		close(output_pipe[1]);
 
-		char** env = createEnvArray();
-		char* args[] = {(char*)cgiPath.c_str(),
-						(char*)scriptPath.c_str(),
-						NULL};
-
-		execve(cgiPath.c_str(), args, env);
-		_logger.error("execve failed: " + std::string(strerror(errno)));
-		exit(1);
+		execve(cgiPath.c_str(), (char*[]){
+				const_cast<char*>(cgiPath.c_str()),
+				const_cast<char*>(scriptPath.c_str()),
+				NULL
+		}, env);
+		_exit(1);
 	}
 
 	// Parent process
-	close(files.inFd);  // Close write end in parent
+	cleanup(env);
+	close(tempFd);
+	close(output_pipe[1]);
+	unlink(tempPath);
 
-	if (!handleTimeout(pid)) {
-		cleanupTempFiles(files);
-		return createErrorResponse(504, "Gateway Timeout");
-	}
-
-	Response response = handleCGIOutput(files);
-	cleanupTempFiles(files);
-
-	// Don't treat empty response as error
-	if (response.getStatusCode() >= 400) {
-		_logger.error("CGI returned error status: " + Utils::numToString(response.getStatusCode()));
-		return response;
-	}
+	// Handle CGI output with timeout
+	Response response = handleCGIOutput(output_pipe[0], pid, 30);
+	close(output_pipe[0]);
 
 	return response;
+}
+
+Response CGIHandler::handleCGIOutput(int output_fd, pid_t pid, int timeout_seconds) {
+	std::string output;
+	const size_t BUFFER_SIZE = 65536;
+	output.reserve(BUFFER_SIZE);
+	char buffer[BUFFER_SIZE];
+	time_t start_time = time(NULL);
+	int status;
+	bool process_done = false;
+
+	while (true) {
+		ssize_t bytesRead = read(output_fd, buffer, sizeof(buffer));
+		if (bytesRead > 0) {
+			output.append(buffer, bytesRead);
+		}
+
+		if (!process_done) {
+			pid_t result = waitpid(pid, &status, WNOHANG);
+			if (result > 0) {
+				process_done = true;
+				if (WIFEXITED(status) && WEXITSTATUS(status) != 0) {
+					return createErrorResponse(500, "CGI process failed");
+				}
+			}
+		}
+
+		if (bytesRead <= 0 && process_done) {
+			break;
+		}
+
+		if (time(NULL) - start_time > timeout_seconds) {
+			kill(pid, SIGTERM);
+			return createErrorResponse(504, "CGI Timeout");
+		}
+	}
+
+	Response response = parseCGIOutput(output);
+	std::string().swap(output);
+	return response;
+}
+
+void CGIHandler::cleanup(char** env) {
+	if (env) {
+		for (int i = 0; env[i] != NULL; i++) {
+			delete[] env[i];
+		}
+		delete[] env;
+	}
 }
 
 void CGIHandler::setupEnvironment(const HTTPRequest &request, const std::string &scriptPath) {
 	_envMap.clear();
 
-	// Log environment setup
-	_logger.info("Setting up CGI environment");
-	_logger.info("Current directory: " + _cwd);
-	_logger.info("Script path: " + scriptPath);
-
-	// Critical environment variables
-	_envMap["GATEWAY_INTERFACE"] = "CGI/1.1";
-	_envMap["REQUEST_METHOD"] = request.getMethod();
-	_envMap["PATH_INFO"] = request.getPath();  // Use URL path
-	_envMap["PATH_TRANSLATED"] = scriptPath;    // Use full script path
-	_envMap["QUERY_STRING"] = "";
-	_envMap["REMOTE_ADDR"] = "127.0.0.1";
-	_envMap["REQUEST_URI"] = request.getPath();
-	_envMap["SCRIPT_FILENAME"] = scriptPath;    // Add this
-	_envMap["SCRIPT_NAME"] = request.getPath(); // Use URL path
-	_envMap["SERVER_NAME"] = "localhost";
-	_envMap["SERVER_PORT"] = "8080";
-	_envMap["SERVER_PROTOCOL"] = "HTTP/1.1";
-	_envMap["SERVER_SOFTWARE"] = "webserv/1.0";
-	_envMap["REDIRECT_STATUS"] = "200";
-	_envMap["HTTP_X_SECRET_HEADER_FOR_TEST"] = 1;
-
+	// Special header handling
+	if (request.hasHeader("X-Secret-Header-For-Test")) {
+		_envMap["HTTP_X_SECRET_HEADER_FOR_TEST"] = request.getHeader("X-Secret-Header-For-Test");
+	}
 	// Add content info for POST
 	if (request.getMethod() == "POST") {
 		_envMap["CONTENT_LENGTH"] = Utils::numToString(request.getBody().length());
 		_envMap["CONTENT_TYPE"] = request.getHeader("Content-Type");
 	}
-
-	// Log all environment variables
-	for (std::map<std::string, std::string>::const_iterator it = _envMap.begin();
-		 it != _envMap.end(); ++it) {
-		_logger.debug(it->first + "=" + it->second);
-	}
-	_logger.info("Request headers:");
-	const std::map<std::string, std::string>& headers = request.getHeaders();
-	for (std::map<std::string, std::string>::const_iterator it = headers.begin();
-		 it != headers.end(); ++it) {
-		_logger.info(it->first + ": " + it->second);
-	}
-
-	// Special header handling
-	if (request.hasHeader("X-Secret-Header-For-Test")) {
-		_envMap["HTTP_X_SECRET_HEADER_FOR_TEST"] = request.getHeader("X-Secret-Header-For-Test");
-	}
+	// Critical environment variables
+	_envMap["GATEWAY_INTERFACE"] = "CGI/1.1";
+	_envMap["REQUEST_METHOD"] = request.getMethod();
+	_envMap["PATH_INFO"] = request.getPath();
+	_envMap["PATH_TRANSLATED"] = scriptPath;
+	_envMap["QUERY_STRING"] = "";
+	_envMap["REMOTE_ADDR"] = "127.0.0.1";
+	_envMap["REQUEST_URI"] = request.getPath();
+	_envMap["SCRIPT_FILENAME"] = scriptPath;
+	_envMap["SCRIPT_NAME"] = request.getPath();
+	_envMap["SERVER_NAME"] = "localhost";
+	_envMap["SERVER_PORT"] = "8080";
+	_envMap["SERVER_PROTOCOL"] = "HTTP/1.1";
+	_envMap["SERVER_SOFTWARE"] = "webserv/1.0";
+	_envMap["REDIRECT_STATUS"] = "200";
 }
 
 char** CGIHandler::createEnvArray() {
-	char** env = new char*[_envMap.size() + 1];
-	int i = 0;
+    try {
+        size_t envSize = _envMap.size();
+        char** env = new char*[envSize + 1];
+        size_t i = 0;
 
-	for (std::map<std::string, std::string>::const_iterator it = _envMap.begin();
-		 it != _envMap.end(); ++it) {
-		std::string envStr = it->first + "=" + it->second;
-		env[i] = new char[envStr.length() + 1];
-		std::strcpy(env[i], envStr.c_str());
-		i++;
-	}
-	env[i] = NULL;
-	return env;
-}
-
-void CGIHandler::cleanupTempFiles(TempFiles &files) {
-	if (!files.cleaned) {
-		if (files.inFile) fclose(files.inFile);
-		if (files.outFile) fclose(files.outFile);
-		files.inFile = NULL;
-		files.outFile = NULL;
-		files.inFd = -1;
-		files.outFd = -1;
-		files.cleaned = true;
-	}
-}
-
-Response CGIHandler::handleCGIOutput(TempFiles &files) {
-	std::string output;
-	char buffer[8192];
-	ssize_t bytesRead;
-
-	// Read CGI output
-	lseek(files.outFd, 0, SEEK_SET);
-	while ((bytesRead = read(files.outFd, buffer, sizeof(buffer))) > 0) {
-		output.append(buffer, bytesRead);
-	}
-
-	Response response(200);
-
-	// Find header/body separator
-	size_t headerEnd = output.find("\r\n\r\n");
-	if (headerEnd == std::string::npos) {
-		headerEnd = output.find("\n\n");
-	}
-
-	// Process headers if present
-	if (headerEnd != std::string::npos) {
-		std::string headers = output.substr(0, headerEnd);
-		std::istringstream headerStream(headers);
-		std::string line;
-
-		// Process headers
-		while (std::getline(headerStream, line)) {
-			if (line.empty() || line == "\r") continue;
-
-			// Remove trailing CR
-			if (!line.empty() && line[line.length()-1] == '\r')
-				line = line.substr(0, line.length()-1);
-
-			// Check for Status header
-			if (line.find("Status:") == 0) {
-				std::string status = line.substr(7);
-				int code = std::atoi(status.c_str());
-				if (code >= 100 && code < 600)
-					response.setStatusCode(code);
-				continue;
-			}
-
-			// Process other headers
-			size_t colonPos = line.find(':');
-			if (colonPos != std::string::npos) {
-				std::string name = line.substr(0, colonPos);
-				std::string value = line.substr(colonPos + 1);
-				value.erase(0, value.find_first_not_of(" "));
-				response.addHeader(name, value);
-			}
-		}
-
-		// Get body after headers
-		size_t bodyStart = headerEnd + 4;  // Skip \r\n\r\n
-		if (headerEnd + 2 < output.length() && output[headerEnd + 2] == '\n')
-			bodyStart = headerEnd + 2;  // Skip \n\n
-		output = output.substr(bodyStart);
-	}
-
-	// Set body regardless of headers presence
-	response.setBody(output);
-
-	// Set content type if not already set
-	if (!response.hasHeader("Content-Type"))
-		response.addHeader("Content-Type", "text/html; charset=utf-8");
-
-	// Set content length based on actual body length
-	response.addHeader("Content-Length", Utils::numToString(output.length()));
-	return response;
+        for (std::map<std::string, std::string>::const_iterator it = _envMap.begin();
+             it != _envMap.end(); ++it, ++i) {
+            std::string envStr = it->first + "=" + it->second;
+            env[i] = new char[envStr.length() + 1];
+            std::strcpy(env[i], envStr.c_str());
+        }
+        env[envSize] = NULL;
+        return env;
+    } catch (const std::exception& e) {
+        _logger.error("Failed to create environment array: " + std::string(e.what()));
+        return NULL;
+    }
 }
 
 Response CGIHandler::createErrorResponse(int code, const std::string& message) {
@@ -285,33 +234,89 @@ Response CGIHandler::createErrorResponse(int code, const std::string& message) {
 	return response;
 }
 
-bool CGIHandler::handleTimeout(pid_t pid) {
-	int status;
-	time_t startTime = time(NULL);
-	const int TIMEOUT_SECONDS = 5;  // Reduce timeout for testing
-
-	while (true) {
-		pid_t result = waitpid(pid, &status, WNOHANG);
-		if (result == -1) {
-			_logger.log(ERROR, "waitpid failed: " + std::string(strerror(errno)));
-			return false;
-		}
-		if (result > 0) {
-			if (WIFEXITED(status)) {
-				int exitStatus = WEXITSTATUS(status);
-				if (exitStatus != 0) {
-					_logger.log(ERROR, "CGI process exited with status: " +
-									   Utils::numToString(exitStatus));
-					return false;
-				}
-				return true;
-			}
-		}
-		if (time(NULL) - startTime > TIMEOUT_SECONDS) {
-			kill(pid, SIGTERM);
-			_logger.log(ERROR, "CGI process timed out");
-			return false;
-		}
-		usleep(1000);
+void CGIHandler::setNonBlocking(int fd) const {
+	int flags = fcntl(fd, F_GETFL, 0);
+	if (flags == -1) {
+		throw std::runtime_error("Failed to get file descriptor flags");
 	}
+	if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) == -1) {
+		throw std::runtime_error("Failed to set non-blocking mode");
+	}
+}
+
+Response CGIHandler::parseCGIOutput(const std::string& output) {
+	// Find headers end
+	size_t headerEnd = output.find("\r\n\r\n");
+	if (headerEnd == std::string::npos) {
+		headerEnd = output.find("\n\n");
+		if (headerEnd == std::string::npos) {
+			// No headers found, treat entire output as body
+			Response response(200);
+			response.addHeader("Content-Type", "text/plain");
+			response.setBody(output);
+			return response;
+		}
+	}
+
+	// Parse headers
+	std::string headers = output.substr(0, headerEnd);
+	// Skip the separator and any leading whitespace in body
+	size_t bodyStart = headerEnd + (output[headerEnd+1] == '\n' ? 2 : 4);
+	while (bodyStart < output.length() &&
+		   (output[bodyStart] == '\r' || output[bodyStart] == '\n')) {
+		bodyStart++;
+	}
+	std::string body = output.substr(bodyStart);
+
+	Response response(200); // Default status code
+	std::istringstream headerStream(headers);
+	std::string line;
+
+	bool statusSet = false;
+	while (std::getline(headerStream, line)) {
+		// Remove \r if present
+		if (!line.empty() && line[line.length()-1] == '\r') {
+			line = line.substr(0, line.length()-1);
+		}
+
+		if (line.empty()) continue;
+
+		size_t colonPos = line.find(':');
+		if (colonPos == std::string::npos) {
+			// Check for Status line
+			if (line.find("Status:") == 0) {
+				std::string statusStr = line.substr(7);
+				size_t spacePos = statusStr.find(' ');
+				if (spacePos != std::string::npos) {
+					int status = std::atoi(statusStr.substr(0, spacePos).c_str());
+					if (status >= 100 && status < 600) {
+						response.setStatusCode(status);
+						statusSet = true;
+					}
+				}
+			}
+			continue;
+		}
+
+		std::string name = line.substr(0, colonPos);
+		std::string value = line.substr(colonPos + 1);
+
+		// Trim leading/trailing whitespace from value
+		while (!value.empty() && (value[0] == ' ' || value[0] == '\t')) {
+			value = value.substr(1);
+		}
+
+		response.addHeader(name, value);
+	}
+
+	// Set default status and content type if not set
+	if (!statusSet && !response.hasHeader("Status")) {
+		response.setStatusCode(200);
+	}
+	if (!response.hasHeader("Content-Type")) {
+		response.addHeader("Content-Type", "text/plain");
+	}
+
+	response.setBody(body);
+	return response;
 }
