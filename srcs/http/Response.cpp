@@ -16,14 +16,8 @@
 #include <cerrno>
 #include <sys/socket.h>
 #include <csignal>
-
-//Response::Response(int statusCode, const std::string &serverName) :
-//	_statusCode(statusCode), _isChunked(false), _isRawOutput(false) {
-//	_headers["Server"] = serverName;
-//	_headers["Content-Type"] = "text/plain";
-//	if (statusCode == 100)
-//		_rawOutput = "HTTP/1.1 100 Continue\r\n\r\n";
-//}
+#include <cstring>
+#include <iostream>
 
 Response::~Response() {}
 
@@ -241,14 +235,23 @@ bool Response::writeNextChunk(int clientFd) {
 		} else if (bytesRead == 0) {
 			// EOF reached
 			closeFileDescriptor();
+			_isStreaming = false;  // Mark streaming as complete
 			return false;
-		} else if (errno == EAGAIN || errno == EWOULDBLOCK) {
-			return true;
 		}
 	} catch (const std::exception& e) {
 		closeFileDescriptor();
+		_isStreaming = false;
 		return false;
 	}
 
 	return false;
 }
+
+void Response::closeFileDescriptor() {
+	if (_fileDescriptor >= 0) {
+		close(_fileDescriptor);
+		_fileDescriptor = -1;
+	}
+}
+
+

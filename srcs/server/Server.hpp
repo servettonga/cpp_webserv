@@ -22,8 +22,8 @@
 #include <sstream>
 
 #define BUFFER_SIZE 65536
-#define KEEP_ALIVE_TIMEOUT 60    // 60 seconds for keep-alive connections
-#define IDLE_TIMEOUT 120         // 120 seconds for idle connections
+#define KEEP_ALIVE_TIMEOUT 120
+#define IDLE_TIMEOUT 60
 
 class Server {
 	public:
@@ -56,6 +56,9 @@ class Server {
 			Response response;
 			bool isStreaming;
 			size_t bytesWritten;
+			std::string tempFile;
+			size_t totalBytesReceived;
+			bool chunkedComplete;
 
 			ClientState() :
 					state(IDLE),
@@ -67,12 +70,24 @@ class Server {
 					waitForEOF(false),
 					response(200),
 					isStreaming(false),
-					bytesWritten(0) {}
+					bytesWritten(0),
+					totalBytesReceived(0),
+					chunkedComplete(false) {}
 			void clear() {
+				state = IDLE;
 				std::string().swap(requestBuffer);
 				std::string().swap(responseBuffer);
+				if (!tempFile.empty()) {
+					unlink(tempFile.c_str());
+					tempFile.clear();
+				}
 				contentLength = 0;
 				bytesWritten = 0;
+				isStreaming = false;
+				chunkedComplete = false;
+				totalBytesReceived = 0;
+				continueSent = false;
+				waitForEOF = false;
 			}
 		};
 		const std::map<int, ClientState> &getClients() const { return _clients; }

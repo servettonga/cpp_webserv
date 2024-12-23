@@ -68,9 +68,6 @@ Response FileHandler::handleFileUpload(const HTTPRequest &request, const Locatio
 		uploadPath = "www/upload"; // Default fallback
 	}
 
-	// Debug log
-	std::cout << "Upload path: " << uploadPath << std::endl;
-
 	// Create directory if it doesn't exist
 	struct stat st;
 	if (stat(uploadPath.c_str(), &st) != 0) {
@@ -92,12 +89,10 @@ Response FileHandler::handleFileUpload(const HTTPRequest &request, const Locatio
 
 	// Construct final file path
 	std::string filepath = uploadPath + "/" + fileData.filename;
-	std::cout << "Saving file to: " << filepath << std::endl;
 
 	// Save file
-	if (!saveUploadedFile(filepath, fileData.content)) {
+	if (!saveUploadedFile(filepath, fileData.content))
 		return Response(500, "Internal Server Error - File save failed");
-	}
 
 	// Return success response
 	Response response(201);

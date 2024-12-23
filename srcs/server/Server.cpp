@@ -93,105 +93,85 @@ void Server::handleClientData(int clientFd) {
 	if (client.state == WRITING_RESPONSE)
 		return;
 
-	static const size_t CHUNK_BUFFER_SIZE = 131072; // 128KB
+	static const size_t CHUNK_BUFFER_SIZE = 655360;
 	char buffer[CHUNK_BUFFER_SIZE];
 
 	ssize_t bytesRead = recv(clientFd, buffer, CHUNK_BUFFER_SIZE, MSG_DONTWAIT);
-
 	if (bytesRead > 0) {
 		client.requestBuffer.append(buffer, bytesRead);
 		client.lastActivity = time(NULL);
 
-		// First time processing headers
-		if (client.state == IDLE) {
-			size_t headerEnd = client.requestBuffer.find("\r\n\r\n");
-			if (headerEnd != std::string::npos) {
-				HTTPRequest request;
-				if (!request.parseHeaders(client.requestBuffer.substr(0, headerEnd))) {
-					sendBadRequestResponse(clientFd);
+		// Check for request completion
+		size_t headerEnd = client.requestBuffer.find("\r\n\r\n");
+		if (headerEnd != std::string::npos) {
+			HTTPRequest tempRequest;
+			if (tempRequest.parseHeaders(client.requestBuffer.substr(0, headerEnd))) {
+				std::string contentLength = tempRequest.getHeader("Content-Length");
+				bool isChunked = (tempRequest.getHeader("Transfer-Encoding") == "chunked");
+
+				// Request is complete if:
+				// 1. No body expected (no Content-Length and not chunked)
+				// 2. Has Content-Length and we have all the data
+				// 3. Chunked and we have the terminating chunk
+				if (!isChunked && contentLength.empty()) {
+					processCompleteRequests(clientFd, client);
 					return;
 				}
 
-				// Handle 100-continue
-				if (!client.continueSent && request.getHeader("Expect") == "100-continue") {
-					Response continueResponse(100);
-					std::string contStr = continueResponse.toString();
-					send(clientFd, contStr.c_str(), contStr.length(), MSG_NOSIGNAL);
-					client.continueSent = true;
+				if (!contentLength.empty()) {
+					size_t expectedLength = std::atoi(contentLength.c_str());
+					if (client.requestBuffer.length() >= headerEnd + 4 + expectedLength) {
+						processCompleteRequests(clientFd, client);
+						return;
+					}
 				}
 
-				// Check if chunked or missing Content-Length
-				std::string transferEncoding = request.getHeader("Transfer-Encoding");
-				std::string contentLength = request.getHeader("Content-Length");
-
-				if (transferEncoding == "chunked") {
-					client.isChunked = true;
-					client.state = READING_REQUEST;
-				} else if (request.getMethod() == "POST" && contentLength.empty()) {
-					// Handle POST without Content-Length - read until connection close
-					client.state = READING_REQUEST;
-					client.waitForEOF = true;
-				} else {
-					client.contentLength = contentLength.empty() ? 0 : std::atoll(contentLength.c_str());
-					client.state = READING_REQUEST;
+				if (isChunked && client.requestBuffer.find("\r\n0\r\n\r\n") != std::string::npos) {
+					processCompleteRequests(clientFd, client);
+					return;
 				}
-			}
-		}
-
-		// Process request if complete
-		if (client.state == READING_REQUEST) {
-			bool requestComplete = false;
-			size_t headerEnd = client.requestBuffer.find("\r\n\r\n");
-
-			if (client.isChunked) {
-				// Check for final chunk
-				requestComplete = client.requestBuffer.find("\r\n0\r\n\r\n", headerEnd) != std::string::npos;
-			} else if (client.waitForEOF) {
-				requestComplete = (bytesRead == 0);  // EOF received
-			} else {
-				requestComplete = (headerEnd != std::string::npos &&
-								   client.requestBuffer.length() >= headerEnd + 4 + client.contentLength);
-			}
-
-			if (requestComplete) {
-				processCompleteRequests(clientFd, client);
 			}
 		}
 	} else if (bytesRead == 0) {
-		// Connection closed by client
-		if (client.state == READING_REQUEST && client.waitForEOF) {
-			// Process the request we have so far
-			processCompleteRequests(clientFd, client);
-		}
 		closeConnection(clientFd);
 	} else if (errno != EAGAIN && errno != EWOULDBLOCK) {
+		_logger.error("Read error: " + std::string(strerror(errno)));
 		closeConnection(clientFd);
 	}
 }
 
 void Server::processCompleteRequests(int clientFd, ClientState &client) {
 	HTTPRequest request;
-	if (!request.parse(client.requestBuffer)) {
-		_logger.error("Failed to parse request");
-		sendBadRequestResponse(clientFd);
+
+	try {
+		if (!client.tempFile.empty()) {
+			// Use file descriptor directly
+			int fd = open(client.tempFile.c_str(), O_RDONLY);
+			if (fd != -1) {
+				request.setTempFilePath(client.tempFile);  // Let request handle the file
+				client.tempFile.clear();  // Transfer ownership
+			}
+		} else {
+			if (!request.parse(client.requestBuffer)) {
+				sendBadRequestResponse(clientFd);
+				return;
+			}
+		}
+		std::string connection = request.getHeader("Connection");
+		client.keepAlive = (connection == "keep-alive");
+
+		std::string().swap(client.requestBuffer);
+
+		RequestHandler handler(_config);
+		client.response = handler.handleRequest(request);
+		client.response.addHeader("Connection",
+								  client.keepAlive ? "keep-alive" : "close");
 		client.state = WRITING_RESPONSE;
-		client.requestBuffer.clear();
-		return;
-	}
-
-	// Handle request
-	RequestHandler handler(_config);
-	client.response = handler.handleRequest(request);
-	client.requestBuffer.clear();
-	std::string().swap(client.requestBuffer);
-	client.state = WRITING_RESPONSE;
-	client.bytesWritten = 0;
-	client.requestBuffer.clear();
-
-	// Prepare response
-	if (!client.response.isFileDescriptor()) {
-		client.responseBuffer = client.response.toString();
-	} else {
+		client.bytesWritten = 0;
+		client.lastActivity = time(NULL);
+	} catch (const std::exception& e) {
+		_logger.error("Error processing request: " + std::string(e.what()));
+		closeConnection(clientFd);
 	}
 }
 
@@ -199,6 +179,9 @@ void Server::handleNewConnection() {
 	struct sockaddr_in addr = {};
 	socklen_t addrLen = sizeof(addr);
 	if (_clients.size() >= MAX_CLIENTS) {
+		if (_clients.size() >= MAX_CLIENTS * 0.9) {  // 90% capacity
+			checkIdleConnections();  // Force cleanup of idle connections
+		}
 		// Accept and immediately close if too many connections
 		int tempFd = accept(_serverSocket, (struct sockaddr*)&addr, &addrLen);
 		if (tempFd >= 0) {
@@ -276,15 +259,17 @@ void Server::sendBadRequestResponse(int clientFd) {
 void Server::closeConnection(int clientFd) {
 	if (clientFd < 0)
 		return;
-	if (_clients.find(clientFd) != _clients.end())
+
+	if (_clients.find(clientFd) != _clients.end()) {
 		_clients[clientFd].clear();
+		_clients.erase(clientFd);
+	}
+
 	try {
 		shutdown(clientFd, SHUT_RDWR);
-	} catch (...) {
-		// Ignore shutdown errors
-	}
+	} catch (...) {}
+
 	close(clientFd);
-	_clients.erase(clientFd);
 	updateMaxFileDescriptor();
 }
 
@@ -323,22 +308,43 @@ void Server::initialize() {
 }
 
 void Server::handleExistingConnections(fd_set &readSet, fd_set &writeSet) {
-	checkIdleConnections();
+	// First check and cleanup idle connections
+	time_t currentTime = time(NULL);
+	std::vector<int> toClose;
 
-	std::vector<int> fdsToCheck;
 	for (std::map<int, ClientState>::iterator it = _clients.begin();
 		 it != _clients.end(); ++it) {
-		fdsToCheck.push_back(it->first);
-	}
-	for (size_t i = 0; i < fdsToCheck.size(); ++i) {
-		int fd = fdsToCheck[i];
-		if (_clients.find(fd) != _clients.end()) {
-			if (FD_ISSET(fd, &readSet))
-				handleClientData(fd);
-			if (_clients.find(fd) != _clients.end() && FD_ISSET(fd, &writeSet))
-				handleClientWrite(fd);
+		if (currentTime - it->second.lastActivity > IDLE_TIMEOUT ||
+			(it->second.state == WRITING_RESPONSE &&
+			 currentTime - it->second.lastActivity > KEEP_ALIVE_TIMEOUT)) {
+			toClose.push_back(it->first);
 		}
 	}
+
+	// Close idle connections
+	for (size_t i = 0; i < toClose.size(); ++i) {
+		closeConnection(toClose[i]);
+	}
+
+	// Handle active connections
+	std::vector<int> activeClients;
+	for (std::map<int, ClientState>::iterator it = _clients.begin();
+		 it != _clients.end(); ++it) {
+		activeClients.push_back(it->first);
+	}
+
+	for (size_t i = 0; i < activeClients.size(); ++i) {
+		int fd = activeClients[i];
+		if (_clients.find(fd) != _clients.end()) {  // Check if client still exists
+			if (FD_ISSET(fd, &readSet)) {
+				handleClientData(fd);
+			}
+			if (_clients.find(fd) != _clients.end() && FD_ISSET(fd, &writeSet)) {
+				handleClientWrite(fd);
+			}
+		}
+	}
+
 	updateMaxFileDescriptor();
 }
 

@@ -19,6 +19,7 @@
 #include <sys/select.h>
 #include <algorithm>
 #include <iostream>
+#include <sys/poll.h>
 
 Logger &CGIHandler::_logger = Logger::getInstance();
 
@@ -38,20 +39,28 @@ CGIHandler::~CGIHandler() {
 Response CGIHandler::executeCGI(const HTTPRequest& request,
 								const std::string& cgiPath,
 								const std::string& scriptPath) {
+	_logger.info("=== Starting CGI Execution ===");
+	_logger.info("CGI Path: " + cgiPath);
+	_logger.info("Script Path: " + scriptPath);
+	_logger.info("Request Body Size: " + Utils::numToString(request.getBody().length()));
 	setupEnvironment(request, scriptPath);
 	char** env = createEnvArray();
 	if (!env) {
 		return createErrorResponse(500, "Failed to setup environment");
 	}
 
-	// Create pipes
+	// Create pipes with larger buffer
 	int output_pipe[2];
 	if (pipe(output_pipe) < 0) {
 		cleanup(env);
 		return createErrorResponse(500, "Failed to create pipe");
 	}
 
-	// Create temp file for input
+#ifdef F_SETPIPE_SZ
+	fcntl(output_pipe[1], F_SETPIPE_SZ, 1048576);  // Set to 1MB
+#endif
+
+	// Create temp file
 	char tempPath[] = "/tmp/webserv_cgi_XXXXXX";
 	int tempFd = mkstemp(tempPath);
 	if (tempFd < 0) {
@@ -61,15 +70,13 @@ Response CGIHandler::executeCGI(const HTTPRequest& request,
 		return createErrorResponse(500, "Failed to create temp file");
 	}
 
-	// Write body to temp file
+	// Write body in smaller chunks
 	const std::string& body = request.getBody();
-	const size_t CHUNK_SIZE = 65536;
+	const size_t CHUNK_SIZE = 8192;  // Smaller chunks
 	size_t totalWritten = 0;
 
 	while (totalWritten < body.length()) {
-		size_t remaining = body.length() - totalWritten;
-		size_t toWrite = std::min(CHUNK_SIZE, remaining);
-
+		size_t toWrite = std::min(CHUNK_SIZE, body.length() - totalWritten);
 		ssize_t written = write(tempFd, body.c_str() + totalWritten, toWrite);
 		if (written < 0) {
 			cleanup(env);
@@ -82,10 +89,11 @@ Response CGIHandler::executeCGI(const HTTPRequest& request,
 		totalWritten += written;
 	}
 
-	// Reset file position and clear request body
-	lseek(tempFd, 0, SEEK_SET);
+	// Clear request body and reset file position
 	const_cast<HTTPRequest&>(request).clearBody();
+	lseek(tempFd, 0, SEEK_SET);
 
+	_logger.info("Executing CGI: " + cgiPath);
 	pid_t pid = fork();
 	if (pid < 0) {
 		cleanup(env);
@@ -95,13 +103,21 @@ Response CGIHandler::executeCGI(const HTTPRequest& request,
 		unlink(tempPath);
 		return createErrorResponse(500, "Fork failed");
 	}
-
+	for (int i = 0; i < 2; ++i) {
+		int flags = fcntl(output_pipe[i], F_GETFL, 0);
+		fcntl(output_pipe[i], F_SETFL, flags | O_NONBLOCK);
+	}
 	if (pid == 0) {
 		// Child process
 		close(output_pipe[0]);
 
-		if (dup2(tempFd, STDIN_FILENO) < 0 ||
-			dup2(output_pipe[1], STDOUT_FILENO) < 0) {
+		if (dup2(tempFd, STDIN_FILENO) < 0) {
+			_logger.error("Failed to redirect stdin");
+			_exit(1);
+		}
+
+		if (dup2(output_pipe[1], STDOUT_FILENO) < 0) {
+			_logger.error("Failed to redirect stdout");
 			_exit(1);
 		}
 
@@ -113,6 +129,8 @@ Response CGIHandler::executeCGI(const HTTPRequest& request,
 				const_cast<char*>(scriptPath.c_str()),
 				NULL
 		}, env);
+
+		_logger.error("execve failed: " + std::string(strerror(errno)));
 		_exit(1);
 	}
 
@@ -122,7 +140,6 @@ Response CGIHandler::executeCGI(const HTTPRequest& request,
 	close(output_pipe[1]);
 	unlink(tempPath);
 
-	// Handle CGI output with timeout
 	Response response = handleCGIOutput(output_pipe[0], pid, 30);
 	close(output_pipe[0]);
 
@@ -130,43 +147,72 @@ Response CGIHandler::executeCGI(const HTTPRequest& request,
 }
 
 Response CGIHandler::handleCGIOutput(int output_fd, pid_t pid, int timeout_seconds) {
-	std::string output;
-	const size_t BUFFER_SIZE = 65536;
-	output.reserve(BUFFER_SIZE);
-	char buffer[BUFFER_SIZE];
-	time_t start_time = time(NULL);
-	int status;
+	char tempPath[] = "/tmp/webserv_cgi_out_XXXXXX";
+	int raw_fd = mkstemp(tempPath);
+	if (raw_fd < 0) {
+		_logger.error("Failed to create temp file for CGI output");
+		kill(pid, SIGTERM);
+		return createErrorResponse(500, "Failed to create temp file");
+	}
+	unlink(tempPath);
+
 	bool process_done = false;
+	time_t start_time = time(NULL);
 
 	while (true) {
-		ssize_t bytesRead = read(output_fd, buffer, sizeof(buffer));
-		if (bytesRead > 0) {
-			output.append(buffer, bytesRead);
-		}
-
 		if (!process_done) {
+			int status;
 			pid_t result = waitpid(pid, &status, WNOHANG);
-			if (result > 0) {
+			if (result == pid) {
 				process_done = true;
-				if (WIFEXITED(status) && WEXITSTATUS(status) != 0) {
+				if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+					close(raw_fd);
 					return createErrorResponse(500, "CGI process failed");
 				}
+			} else if (result < 0) {
+				close(raw_fd);
+				return createErrorResponse(500, "waitpid failed");
 			}
 		}
 
-		if (bytesRead <= 0 && process_done) {
-			break;
+		struct pollfd pfd;
+		pfd.fd = output_fd;
+		pfd.events = POLLIN;
+		int ready = poll(&pfd, 1, 100);  // 100ms timeout
+
+		if (ready > 0) {
+			char buffer[8192];
+			ssize_t bytes = read(output_fd, buffer, sizeof(buffer));
+			if (bytes > 0) {
+				ssize_t written = write(raw_fd, buffer, bytes);
+				if (written != bytes) {
+					close(raw_fd);
+					kill(pid, SIGTERM);
+					return createErrorResponse(500, "Failed to write CGI output");
+				}
+			} else if (bytes == 0 && process_done) {
+				break;
+			}
 		}
 
 		if (time(NULL) - start_time > timeout_seconds) {
+			close(raw_fd);
 			kill(pid, SIGTERM);
 			return createErrorResponse(504, "CGI Timeout");
 		}
 	}
 
-	Response response = parseCGIOutput(output);
-	std::string().swap(output);
-	return response;
+	// Reset file position and read entire output
+	lseek(raw_fd, 0, SEEK_SET);
+	std::string output;
+	char buffer[8192];
+	ssize_t bytes;
+	while ((bytes = read(raw_fd, buffer, sizeof(buffer))) > 0) {
+		output.append(buffer, bytes);
+	}
+	close(raw_fd);
+
+	return parseCGIOutput(output);
 }
 
 void CGIHandler::cleanup(char** env) {

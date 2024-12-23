@@ -72,12 +72,7 @@ class Response {
 		void setFileDescriptor(int fd);
 		bool writeNextChunk(int clientFd);
 		bool isFileDescriptor() const { return _fileDescriptor >= 0; }
-		void closeFileDescriptor() {
-			if (_fileDescriptor >= 0) {
-				close(_fileDescriptor);
-				_fileDescriptor = -1;
-			}
-		}
+		void closeFileDescriptor();
 		int getFileDescriptor() const { return _fileDescriptor; }
 		std::string getHeadersString() const {
 			std::string headers = "HTTP/1.1 " + Utils::numToString(_statusCode) + " " + getStatusText() + "\r\n";

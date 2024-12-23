@@ -32,11 +32,13 @@ class HTTPRequest {
 		const std::string &getPath() const;
 		const std::string &getVersion() const;
 		const std::string &getBody() const;
-		std::string& getBody() { return _body; };
+		std::string &getBody();
+		void loadBodyFromTempFile();
 		const std::map<std::string, std::string> &getHeaders() const;
 		void setTempFilePath(const std::string& path);
 		const std::string &getTempFilePath() const;
 		bool isChunked() const;
+		void storeBodyInFile();
 
 		// Header operations
 		bool hasHeader(const std::string &name) const;
@@ -67,6 +69,7 @@ class HTTPRequest {
 		// Parsing helpers
 		bool parseRequestLine(const std::string &line);
 		static std::string trimWhitespace(const std::string &str);
+		void readFromTempFile();
 };
 
 #endif

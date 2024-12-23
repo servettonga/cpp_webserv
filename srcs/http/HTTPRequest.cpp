@@ -15,6 +15,8 @@
 #include <cstring>
 #include <sstream>
 #include <cstdlib>
+#include <csignal>
+#include <fcntl.h>
 
 HTTPRequest::HTTPRequest(const HTTPRequest &other) {
 	_method = other._method;
@@ -159,13 +161,48 @@ std::string HTTPRequest::trimWhitespace(const std::string &str) {
 	return str.substr(first, last - first + 1);
 }
 
+void HTTPRequest::readFromTempFile() {
+	if (!_tempFilePath.empty()) {
+		int fd = open(_tempFilePath.c_str(), O_RDONLY);
+		if (fd != -1) {
+			char buffer[8192];
+			ssize_t bytes;
+			while ((bytes = read(fd, buffer, sizeof(buffer))) > 0) {
+				_body.append(buffer, bytes);
+			}
+			close(fd);
+			unlink(_tempFilePath.c_str());
+			_tempFilePath.clear();
+		}
+	}
+}
+
 // Getters
 const std::string &HTTPRequest::getMethod() const { return _method; }
 const std::string &HTTPRequest::getPath() const { return _path; }
 const std::string &HTTPRequest::getVersion() const { return _version; }
-const std::string &HTTPRequest::getBody() const { return _body; }
+const std::string &HTTPRequest::getBody() const {
+	if (!_tempFilePath.empty()) {
+		const_cast<HTTPRequest*>(this)->loadBodyFromTempFile();
+	}
+	return _body;
+}
+void HTTPRequest::loadBodyFromTempFile() {
+	if (!_tempFilePath.empty()) {
+		int fd = open(_tempFilePath.c_str(), O_RDONLY);
+		if (fd != -1) {
+			char buffer[8192];
+			ssize_t bytes;
+			while ((bytes = read(fd, buffer, sizeof(buffer))) > 0) {
+				_body.append(buffer, bytes);
+			}
+			close(fd);
+			unlink(_tempFilePath.c_str());
+			_tempFilePath.clear();
+		}
+	}
+}
 const std::map<std::string, std::string> &HTTPRequest::getHeaders() const { return _headers; }
-
 bool HTTPRequest::hasHeader(const std::string &name) const {
 	return _headers.find(name) != _headers.end();
 }
@@ -178,6 +215,19 @@ std::string HTTPRequest::getHeader(const std::string &name) const {
 void HTTPRequest::setConfig(const void *config) { _config = config; }
 
 const void *HTTPRequest::getConfig() const { return _config; }
+
+void HTTPRequest::storeBodyInFile() {
+	if (_body.length() > 1048576) { // 1MB threshold
+		char tempPath[] = "/tmp/webserv_req_XXXXXX";
+		int fd = mkstemp(tempPath);
+		if (fd != -1) {
+			write(fd, _body.c_str(), _body.length());
+			_tempFilePath = tempPath;
+			std::string().swap(_body);
+			close(fd);
+		}
+	}
+}
 
 bool HTTPRequest::isChunked() const { return _isChunked; }
 
