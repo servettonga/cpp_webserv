@@ -6,18 +6,12 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/12/04 11:30:42 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/11 13:55:20 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/25 23:55:23 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "ServerGroup.hpp"
-#include "../utils/ConfigParser.hpp"
-#include <algorithm>
-#include <iostream>
-#include <sys/select.h>
-#include <cerrno>
-#include <cstring>
-#include <csignal>
+#include "../config/ConfigParser.hpp"
 
 ServerGroup *ServerGroup::_instance = NULL;
 bool ServerGroup::_shutdownRequested = false;
@@ -31,9 +25,7 @@ ServerGroup::ServerGroup(const std::string& configFile): _isRunning(false), _max
 	_instance = this;
 }
 
-ServerGroup::~ServerGroup() {
-	stop();
-}
+ServerGroup::~ServerGroup() { stop(); }
 
 void ServerGroup::addServer(const ServerConfig& config) {
 	ServerConfig serverConfig = config;
@@ -65,9 +57,8 @@ void ServerGroup::handleEvents(fd_set& readSet, fd_set& writeSet) {
 		 it != _servers.end(); ++it) {
 		Server* server = *it;
 		int serverFd = server->getServerSocket();
-		if (serverFd >= 0) {
+		if (serverFd >= 0)
 			FD_SET(serverFd, &_masterSet);
-		}
 
 		// Add client sockets to write set if they have pending data
 		const std::map<int, Server::ClientState>& clients = server->getClients();
@@ -75,9 +66,8 @@ void ServerGroup::handleEvents(fd_set& readSet, fd_set& writeSet) {
 			 cit != clients.end(); ++cit) {
 			if (cit->first >= 0 && cit->first < FD_SETSIZE) {
 				FD_SET(cit->first, &_masterSet);
-				if (cit->second.state == Server::WRITING_RESPONSE) {
+				if (cit->second.state == Server::WRITING_RESPONSE)
 					FD_SET(cit->first, &_writeSet);
-				}
 			}
 		}
 	}
@@ -175,11 +165,11 @@ void ServerGroup::setupSignalHandlers() {
 
 void ServerGroup::signalHandler(int signum) {
 	if (signum == SIGHUP) {
-		std::cout << "Received SIGHUP, reloading configuration...\n";
+		std::cout << YELLOW << "Received SIGHUP, reloading configuration...\n" << RESET;
 		if (_instance)
 			_instance->reloadConfiguration(_instance->_configFile);
 	} else {
-		std::cout << "\nReceived signal " << signum << ", shutting down...\n";
+		std::cout << YELLOW << "\nReceived signal " << signum << ", shutting down...\n" << RESET;
 		_shutdownRequested = true;
 	}
 }
@@ -193,7 +183,7 @@ void ServerGroup::reloadConfiguration(const std::string &configFile) {
 		ConfigParser parser(configFile);
 		parser.reload();
 		if (!parser.validate()) {
-			std::cerr << "Configuration validation failed during reload:\n";
+			std::cerr << RED << "Configuration validation failed during reload:\n" << RESET;
 			std::vector<std::string> errors = parser.getErrors();
 			for (std::vector<std::string>::const_iterator it = errors.begin();
 				 it != errors.end(); ++it) {
@@ -203,7 +193,7 @@ void ServerGroup::reloadConfiguration(const std::string &configFile) {
 		}
 		std::vector<ServerConfig> newConfigs = parser.parse();	// Parse new configuration
 		if (newConfigs.empty()) {
-			std::cerr << "No valid server configurations found during reload\n";
+			std::cerr << YELLOW << "No valid server configurations found during reload\n" << RESET;
 			return;
 		}
 		stop();	// Stop existing servers
@@ -216,6 +206,6 @@ void ServerGroup::reloadConfiguration(const std::string &configFile) {
 		_isRunning = true;
 		std::cout << "Configuration reloaded successfully\n";
 	} catch (const std::exception& e) {
-		std::cerr << "Failed to reload configuration: " << e.what() << std::endl;
+		std::cerr << RED << "Failed to reload configuration: " << e.what() << RESET << std::endl;
 	}
 }

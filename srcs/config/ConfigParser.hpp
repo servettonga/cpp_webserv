@@ -15,7 +15,7 @@
 
 #include <string>
 #include <vector>
-#include "../server/ServerConfig.hpp"
+#include "ServerConfig.hpp"
 
 class ConfigParser {
 	public:

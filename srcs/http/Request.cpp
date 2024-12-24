@@ -1,24 +1,18 @@
 /* ************************************************************************** */
 /*                                                                            */
 /*                                                        :::      ::::::::   */
-/*   HTTPRequest.cpp                                    :+:      :+:    :+:   */
+/*   Request.cpp                                        :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 23:07:40 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/17 11:50:33 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/25 23:04:37 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
-#include "HTTPRequest.hpp"
-#include "../utils/Utils.hpp"
-#include <cstring>
-#include <sstream>
-#include <cstdlib>
-#include <csignal>
-#include <fcntl.h>
+#include "Request.hpp"
 
-HTTPRequest::HTTPRequest(const HTTPRequest &other) {
+Request::Request(const Request &other) {
 	_method = other._method;
 	_path = other._path;
 	_queryString = other._queryString;
@@ -30,7 +24,7 @@ HTTPRequest::HTTPRequest(const HTTPRequest &other) {
 	_tempFilePath = other._tempFilePath;
 }
 
-HTTPRequest &HTTPRequest::operator=(const HTTPRequest &other) {
+Request &Request::operator=(const Request &other) {
 	if (this != &other) {
 		_method = other._method;
 		_path = other._path;
@@ -45,7 +39,7 @@ HTTPRequest &HTTPRequest::operator=(const HTTPRequest &other) {
 	return *this;
 }
 
-bool HTTPRequest::parse(const std::string &rawRequest) {
+bool Request::parse(const std::string &rawRequest) {
 	size_t firstLineEnd = rawRequest.find("\r\n");
 	if (firstLineEnd == std::string::npos)
 		return false;
@@ -72,10 +66,7 @@ bool HTTPRequest::parse(const std::string &rawRequest) {
 			// Extract and process chunked body
 			std::string chunkedBody = rawRequest.substr(bodyStart);
 			_body = unchunkData(chunkedBody);
-
-			// Update Content-Length header after unchunking
 			_headers["Content-Length"] = Utils::numToString(_body.length());
-			// Remove Transfer-Encoding header as we've processed it
 			_headers.erase("Transfer-Encoding");
 		} catch (const std::exception& e) {
 			return false;
@@ -85,15 +76,14 @@ bool HTTPRequest::parse(const std::string &rawRequest) {
 		std::string contentLength = getHeader("Content-Length");
 		if (!contentLength.empty()) {
 			_body = rawRequest.substr(bodyStart);
-			// Set Content-Length to actual body size
 			_headers["Content-Length"] = Utils::numToString(_body.length());
 		}
 	}
-
+	parseCookies();
 	return true;
 }
 
-bool HTTPRequest::parseRequestLine(const std::string &line) {
+bool Request::parseRequestLine(const std::string &line) {
 	size_t first = line.find(' ');
 	size_t last = line.rfind(' ');
 
@@ -118,7 +108,7 @@ bool HTTPRequest::parseRequestLine(const std::string &line) {
 	return true;
 }
 
-bool HTTPRequest::parseHeaders(const std::string &headerSection) {
+bool Request::parseHeaders(const std::string &headerSection) {
 	if (headerSection.empty())
 		return false;
 
@@ -153,7 +143,7 @@ bool HTTPRequest::parseHeaders(const std::string &headerSection) {
 	return hasValidHeaders;
 }
 
-std::string HTTPRequest::trimWhitespace(const std::string &str) {
+std::string Request::trimWhitespace(const std::string &str) {
 	size_t first = str.find_first_not_of(" \t");
 	if (first == std::string::npos)
 		return "";
@@ -161,7 +151,18 @@ std::string HTTPRequest::trimWhitespace(const std::string &str) {
 	return str.substr(first, last - first + 1);
 }
 
-void HTTPRequest::readFromTempFile() {
+// Getters
+const std::string &Request::getMethod() const { return _method; }
+
+const std::string &Request::getPath() const { return _path; }
+
+const std::string &Request::getBody() const {
+	if (!_tempFilePath.empty())
+		const_cast<Request*>(this)->loadBodyFromTempFile();
+	return _body;
+}
+
+void Request::loadBodyFromTempFile() {
 	if (!_tempFilePath.empty()) {
 		int fd = open(_tempFilePath.c_str(), O_RDONLY);
 		if (fd != -1) {
@@ -177,61 +178,20 @@ void HTTPRequest::readFromTempFile() {
 	}
 }
 
-// Getters
-const std::string &HTTPRequest::getMethod() const { return _method; }
-const std::string &HTTPRequest::getPath() const { return _path; }
-const std::string &HTTPRequest::getVersion() const { return _version; }
-const std::string &HTTPRequest::getBody() const {
-	if (!_tempFilePath.empty()) {
-		const_cast<HTTPRequest*>(this)->loadBodyFromTempFile();
-	}
-	return _body;
-}
-void HTTPRequest::loadBodyFromTempFile() {
-	if (!_tempFilePath.empty()) {
-		int fd = open(_tempFilePath.c_str(), O_RDONLY);
-		if (fd != -1) {
-			char buffer[8192];
-			ssize_t bytes;
-			while ((bytes = read(fd, buffer, sizeof(buffer))) > 0) {
-				_body.append(buffer, bytes);
-			}
-			close(fd);
-			unlink(_tempFilePath.c_str());
-			_tempFilePath.clear();
-		}
-	}
-}
-const std::map<std::string, std::string> &HTTPRequest::getHeaders() const { return _headers; }
-bool HTTPRequest::hasHeader(const std::string &name) const {
+bool Request::hasHeader(const std::string &name) const {
 	return _headers.find(name) != _headers.end();
 }
 
-std::string HTTPRequest::getHeader(const std::string &name) const {
+std::string Request::getHeader(const std::string &name) const {
 	std::map<std::string, std::string>::const_iterator it = _headers.find(name);
 	return it != _headers.end() ? it->second : "";
 }
 
-void HTTPRequest::setConfig(const void *config) { _config = config; }
+void Request::setConfig(const void *config) { _config = config; }
 
-const void *HTTPRequest::getConfig() const { return _config; }
+bool Request::isChunked() const { return _isChunked; }
 
-void HTTPRequest::storeBodyInFile() {
-	if (_body.length() > 1048576) { // 1MB threshold
-		char tempPath[] = "/tmp/webserv_req_XXXXXX";
-		int fd = mkstemp(tempPath);
-		if (fd != -1) {
-			write(fd, _body.c_str(), _body.length());
-			_tempFilePath = tempPath;
-			std::string().swap(_body);
-			close(fd);
-		}
-	}
-}
-
-bool HTTPRequest::isChunked() const { return _isChunked; }
-
-std::string HTTPRequest::unchunkData(const std::string& chunkedData) {
+std::string Request::unchunkData(const std::string &chunkedData) {
 	// Pre-allocate result buffer to avoid reallocations
 	std::string result;
 	result.reserve(chunkedData.length());  // Worst case size
@@ -257,29 +217,43 @@ std::string HTTPRequest::unchunkData(const std::string& chunkedData) {
 			else
 				break;  // Handle optional chunk extensions
 		}
-
 		if (chunkSize == 0) // End of chunks
 			break;
 
-		// Calculate positions
 		size_t dataStart = endOfSize + 2;  // Skip CRLF after size
 		if (dataStart + chunkSize + 2 > len) // +2 for trailing CRLF
 			throw std::runtime_error("Incomplete chunk data");
 
-		// Append chunk data directly
 		result.append(chunkedData.data() + dataStart, chunkSize);
 
 		// Move to next chunk
 		pos = dataStart + chunkSize + 2;  // Skip data and CRLF
 	}
-
 	return result;
 }
 
-void HTTPRequest::setTempFilePath(const std::string &path) { _tempFilePath = path; }
+void Request::setTempFilePath(const std::string &path) { _tempFilePath = path; }
 
-const std::string &HTTPRequest::getTempFilePath() const { return _tempFilePath; }
+void Request::parseCookies() {
+	std::string cookieHeader = getHeader("Cookie");
+	if (cookieHeader.empty()) return;
 
-std::string HTTPRequest::getQueryString() const {
-	return _queryString;
+	std::istringstream cookieStream(cookieHeader);
+	std::string cookie;
+
+	while (std::getline(cookieStream, cookie, ';')) {
+		// Trim leading/trailing whitespace
+		cookie = trimWhitespace(cookie);
+
+		size_t equalPos = cookie.find('=');
+		if (equalPos != std::string::npos) {
+			std::string name = cookie.substr(0, equalPos);
+			std::string value = cookie.substr(equalPos + 1);
+			_cookies[name] = value;
+		}
+	}
 }
+
+std::map<std::string, std::string> Request::getCookies() const { return _cookies; }
+
+void Request::clearBody() { std::string().swap(_body); }

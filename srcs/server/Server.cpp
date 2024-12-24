@@ -6,22 +6,12 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 13:04:01 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/22 14:19:56 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/25 23:50:40 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "Server.hpp"
 #include "../handlers/RequestHandler.hpp"
-#include "../utils/Utils.hpp"
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <netinet/tcp.h>
-#include <unistd.h>
-#include <cerrno>
-#include <iostream>
-#include <fcntl.h>
-#include <cstdlib>
-#include <cstring>
 
 Logger &Server::_logger = Logger::getInstance();
 
@@ -31,13 +21,13 @@ Server::Server(const ServerConfig &config) :
 		_serverSocket(-1),
 		_config(config),
 		_maxFd(0) {
-	_logger.configure("logs/server.log", INFO, true, true);
+	_logger.configure(SERVER_LOG, INFO, true, true, false);
 	_config.precomputePaths();
 }
 
 Server::~Server() {
 	stop();
-	std::cout << "Server " << _host << " stopped" << std::endl;
+	std::cout << YELLOW << "Server " << _host << " stopped\n" << RESET;
 }
 
 bool Server::initializeSocket() {
@@ -93,7 +83,6 @@ void Server::handleClientData(int clientFd) {
 	if (client.state == WRITING_RESPONSE)
 		return;
 
-	static const size_t CHUNK_BUFFER_SIZE = 655360;
 	char buffer[CHUNK_BUFFER_SIZE];
 
 	ssize_t bytesRead = recv(clientFd, buffer, CHUNK_BUFFER_SIZE, MSG_DONTWAIT);
@@ -104,20 +93,19 @@ void Server::handleClientData(int clientFd) {
 		// Check for request completion
 		size_t headerEnd = client.requestBuffer.find("\r\n\r\n");
 		if (headerEnd != std::string::npos) {
-			HTTPRequest tempRequest;
+			Request tempRequest;
 			if (tempRequest.parseHeaders(client.requestBuffer.substr(0, headerEnd))) {
 				std::string contentLength = tempRequest.getHeader("Content-Length");
 				bool isChunked = (tempRequest.getHeader("Transfer-Encoding") == "chunked");
 
 				// Request is complete if:
 				// 1. No body expected (no Content-Length and not chunked)
-				// 2. Has Content-Length and we have all the data
+				// 2. Has Content-Length and we have all data
 				// 3. Chunked and we have the terminating chunk
 				if (!isChunked && contentLength.empty()) {
 					processCompleteRequests(clientFd, client);
 					return;
 				}
-
 				if (!contentLength.empty()) {
 					size_t expectedLength = std::atoi(contentLength.c_str());
 					if (client.requestBuffer.length() >= headerEnd + 4 + expectedLength) {
@@ -125,7 +113,6 @@ void Server::handleClientData(int clientFd) {
 						return;
 					}
 				}
-
 				if (isChunked && client.requestBuffer.find("\r\n0\r\n\r\n") != std::string::npos) {
 					processCompleteRequests(clientFd, client);
 					return;
@@ -141,7 +128,7 @@ void Server::handleClientData(int clientFd) {
 }
 
 void Server::processCompleteRequests(int clientFd, ClientState &client) {
-	HTTPRequest request;
+	Request request;
 
 	try {
 		if (!client.tempFile.empty()) {
@@ -179,9 +166,8 @@ void Server::handleNewConnection() {
 	struct sockaddr_in addr = {};
 	socklen_t addrLen = sizeof(addr);
 	if (_clients.size() >= MAX_CLIENTS) {
-		if (_clients.size() >= MAX_CLIENTS * 0.9) {  // 90% capacity
+		if (_clients.size() >= MAX_CLIENTS * 0.9) // 90% capacity
 			checkIdleConnections();  // Force cleanup of idle connections
-		}
 		// Accept and immediately close if too many connections
 		int tempFd = accept(_serverSocket, (struct sockaddr*)&addr, &addrLen);
 		if (tempFd >= 0) {
@@ -196,7 +182,6 @@ void Server::handleNewConnection() {
 			_logger.error("Failed to accept connection: " + std::string(strerror(errno)));
 		return;
 	}
-	// Set new socket options
 	setNonBlocking(clientFd);
 	int keepAlive = 1;
 	setsockopt(clientFd, SOL_SOCKET, SO_KEEPALIVE, &keepAlive, sizeof(keepAlive));
@@ -208,9 +193,8 @@ void Server::handleNewConnection() {
 void Server::handleClientWrite(int clientFd) {
 	ClientState &client = _clients[clientFd];
 
-	if (client.state != WRITING_RESPONSE) {
+	if (client.state != WRITING_RESPONSE)
 		return;
-	}
 
 	try {
 		if (client.response.isFileDescriptor()) {
@@ -222,9 +206,8 @@ void Server::handleClientWrite(int clientFd) {
 					closeConnection(clientFd);
 			}
 		} else {
-			if (client.responseBuffer.empty()) {
+			if (client.responseBuffer.empty())
 				client.responseBuffer = client.response.toString();
-			}
 
 			ssize_t sent = send(clientFd,
 								client.responseBuffer.c_str() + client.bytesWritten,
@@ -314,7 +297,7 @@ void Server::handleExistingConnections(fd_set &readSet, fd_set &writeSet) {
 
 	for (std::map<int, ClientState>::iterator it = _clients.begin();
 		 it != _clients.end(); ++it) {
-		if (currentTime - it->second.lastActivity > IDLE_TIMEOUT ||
+		if (currentTime - it->second.lastActivity > CLIENT_TIMEOUT ||
 			(it->second.state == WRITING_RESPONSE &&
 			 currentTime - it->second.lastActivity > KEEP_ALIVE_TIMEOUT)) {
 			toClose.push_back(it->first);
@@ -322,29 +305,23 @@ void Server::handleExistingConnections(fd_set &readSet, fd_set &writeSet) {
 	}
 
 	// Close idle connections
-	for (size_t i = 0; i < toClose.size(); ++i) {
+	for (size_t i = 0; i < toClose.size(); ++i)
 		closeConnection(toClose[i]);
-	}
 
 	// Handle active connections
 	std::vector<int> activeClients;
-	for (std::map<int, ClientState>::iterator it = _clients.begin();
-		 it != _clients.end(); ++it) {
+	for (std::map<int, ClientState>::iterator it = _clients.begin(); it != _clients.end(); ++it)
 		activeClients.push_back(it->first);
-	}
 
 	for (size_t i = 0; i < activeClients.size(); ++i) {
 		int fd = activeClients[i];
-		if (_clients.find(fd) != _clients.end()) {  // Check if client still exists
-			if (FD_ISSET(fd, &readSet)) {
+		if (_clients.find(fd) != _clients.end()) {  // Check if the client still exists
+			if (FD_ISSET(fd, &readSet))
 				handleClientData(fd);
-			}
-			if (_clients.find(fd) != _clients.end() && FD_ISSET(fd, &writeSet)) {
+			if (_clients.find(fd) != _clients.end() && FD_ISSET(fd, &writeSet))
 				handleClientWrite(fd);
-			}
 		}
 	}
-
 	updateMaxFileDescriptor();
 }
 
@@ -360,7 +337,7 @@ void Server::checkIdleConnections() {
 }
 
 bool Server::isConnectionIdle(time_t currentTime, const ClientState &client) const {
-	return (currentTime - client.lastActivity) > IDLE_TIMEOUT;
+	return (currentTime - client.lastActivity) > CLIENT_TIMEOUT;
 }
 
 void Server::updateMaxFileDescriptor() {

@@ -6,24 +6,16 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 13:04:01 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/05 12:03:39 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/26 00:01:46 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #ifndef SERVER_HPP
 #define SERVER_HPP
 
-#include "ServerConfig.hpp"
-#include "../utils/Logger.hpp"
+#include "../WebServ.hpp"
+#include "../config/ServerConfig.hpp"
 #include "../http/Response.hpp"
-#include <map>
-#include <string>
-#include <sys/select.h>
-#include <sstream>
-
-#define BUFFER_SIZE 65536
-#define KEEP_ALIVE_TIMEOUT 120
-#define IDLE_TIMEOUT 60
 
 class Server {
 	public:
@@ -40,7 +32,6 @@ class Server {
 
 		enum ConnectionState {
 			IDLE,
-			READING_REQUEST,
 			WRITING_RESPONSE
 		};
 		struct ClientState {
@@ -49,30 +40,18 @@ class Server {
 			std::string responseBuffer;
 			time_t lastActivity;
 			size_t contentLength;
-			bool continueSent;
 			bool keepAlive;
-			bool isChunked;
-			bool waitForEOF;
 			Response response;
-			bool isStreaming;
 			size_t bytesWritten;
 			std::string tempFile;
-			size_t totalBytesReceived;
-			bool chunkedComplete;
 
 			ClientState() :
 					state(IDLE),
 					lastActivity(time(NULL)),
 					contentLength(0),
-					continueSent(false),
 					keepAlive(true),
-					isChunked(false),
-					waitForEOF(false),
 					response(200),
-					isStreaming(false),
-					bytesWritten(0),
-					totalBytesReceived(0),
-					chunkedComplete(false) {}
+					bytesWritten(0) {}
 			void clear() {
 				state = IDLE;
 				std::string().swap(requestBuffer);
@@ -83,11 +62,6 @@ class Server {
 				}
 				contentLength = 0;
 				bytesWritten = 0;
-				isStreaming = false;
-				chunkedComplete = false;
-				totalBytesReceived = 0;
-				continueSent = false;
-				waitForEOF = false;
 			}
 		};
 		const std::map<int, ClientState> &getClients() const { return _clients; }

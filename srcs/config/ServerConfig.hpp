@@ -13,11 +13,8 @@
 #ifndef SERVERCONFIG_HPP
 #define SERVERCONFIG_HPP
 
-#include <string>
-#include <vector>
-#include <map>
+#include "../WebServ.hpp"
 
-// Structure to hold location block configuration
 struct LocationConfig {
 	std::string path;                    // URL path this location handles
 	std::vector<std::string> methods;    // Allowed HTTP methods (GET, POST, etc.)
@@ -28,10 +25,9 @@ struct LocationConfig {
 	std::string cgi_path;                // Path to CGI executable
 	unsigned long client_max_body_size;   // Maximum request body size
 
-	// Constructor with default values
 	LocationConfig() :
 			autoindex(false),
-			client_max_body_size(1024 * 1024) {} // 1MB default
+			client_max_body_size(CLIENT_MAX_BODY) {}
 };
 
 // Main server configuration structure
@@ -58,11 +54,11 @@ struct ServerConfig {
 
 	// Constructor with default values
 	ServerConfig() :
-			host("0.0.0.0"),
-			port(80),
-			client_timeout(60),
-			client_max_body_size(1024 * 1024) { // 1MB default
-		index = "index.html";
+			host(DEFAULT_HOST),
+			port(DEFAULT_PORT),
+			client_timeout(CLIENT_TIMEOUT),
+			client_max_body_size(CLIENT_MAX_BODY) { // 1MB default
+		index = DEFAULT_INDEX;
 		error_pages[404] = "/404.html";
 		error_pages[500] = "/500.html";
 	}
@@ -111,11 +107,6 @@ struct ServerConfig {
 			cgiExtCache[it->first] = true;
 		}
 	}
-
-	// Helper method to check if file extension is handled by CGI
-	bool isCGIExtension(const std::string& extension) const {
-		return cgiExtCache.find(extension) != cgiExtCache.end();
-	}
 };
 
-#endif // SERVERCONFIG_HPP
+#endif

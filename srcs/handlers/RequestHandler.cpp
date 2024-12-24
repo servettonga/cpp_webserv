@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 20:05:44 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/16 12:38:33 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/25 22:41:26 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -14,23 +14,20 @@
 #include "FileHandler.hpp"
 #include "DirectoryHandler.hpp"
 #include "CGIHandler.hpp"
-#include <sys/stat.h>
-#include <cstring>
-#include <sstream>
-#include <iostream>
+#include "../server/SessionManager.hpp"
 
 RequestHandler::RequestHandler(const ServerConfig &config) : _config(config) {}
 
-Response RequestHandler::handleRequest(const HTTPRequest &request) {
-	HTTPRequest req = request;
+Response RequestHandler::handleRequest(const Request &request) {
+	Request req = request;
 	req.setConfig(&_config);
 	const LocationConfig *location = getLocation(request.getPath());
 
-	// First check location exists
+	// Return 404 if no location found
 	if (!location)
 		return Response::makeErrorResponse(404);
 
-	// Then check method is allowed
+	// Check if method is allowed
 	if (!isMethodAllowed(req.getMethod(), *location)) {
 		Response error(405);
 		error.addHeader("Content-Type", "text/html");
@@ -46,17 +43,27 @@ Response RequestHandler::handleRequest(const HTTPRequest &request) {
 		return error;
 	}
 
-	// Handle methods
-	if (req.getMethod() == "GET")
-		return handleGET(request);
-	else if (req.getMethod() == "POST")
-		return handlePOST(request);
-	else if (req.getMethod() == "DELETE")
-		return handleDELETE(request);
-	else if (req.getMethod() == "PUT")
-		return handlePUT(request);
-
-	return Response::makeErrorResponse(501);
+	// Create response based on the request method
+	Response response;
+	if (request.getMethod() == "GET") {
+		response = handleGET(request);
+	} else if (request.getMethod() == "POST") {
+		response = handlePOST(request);
+	} else if (request.getMethod() == "DELETE") {
+		response = handleDELETE(request);
+	} else if (request.getMethod() == "PUT") {
+		response = handlePUT(request);
+	} else {
+		response = Response::makeErrorResponse(501); // Not Implemented
+	}
+	// Clean up expired sessions periodically
+	static time_t lastCleanup = 0;
+	if (time(NULL) - lastCleanup > 300) { // Every 5 minutes
+		SessionManager::getInstance().cleanupExpiredSessions();
+		lastCleanup = time(NULL);
+	}
+	handleCookies(request, response);
+	return response;
 }
 
 const LocationConfig* RequestHandler::getLocation(const std::string& path) const {
@@ -79,10 +86,8 @@ const LocationConfig* RequestHandler::getLocation(const std::string& path) const
 			// Check if path matches pattern
 			if (path.length() >= pattern.length()) {
 				std::string pathEnd = path.substr(path.length() - pattern.length());
-				if (pathEnd == pattern) {
-					std::cout << "Matched regex pattern: " << pattern << " for path: " << path << std::endl;
+				if (pathEnd == pattern)
 					return &(*it);
-				}
 			}
 		}
 	}
@@ -118,7 +123,7 @@ bool RequestHandler::isMethodAllowed(const std::string &method, const LocationCo
 	return false;
 }
 
-Response RequestHandler::handleGET(const HTTPRequest &request) const {
+Response RequestHandler::handleGET(const Request &request) const {
 	std::string path = request.getPath();
 	const LocationConfig *location = getLocation(path);
 	if (!location)
@@ -135,7 +140,7 @@ Response RequestHandler::handleGET(const HTTPRequest &request) const {
 		if (handlerIt != _config.cgi_handlers.end()) {
 			if (!location->cgi_path.empty()) {  // Location has CGI configuration
 				CGIHandler handler;
-				HTTPRequest req(request);
+				Request req(request);
 				req.setConfig(&_config);
 				return handler.executeCGI(req, handlerIt->second, fullPath);
 			}
@@ -154,8 +159,7 @@ Response RequestHandler::handleGET(const HTTPRequest &request) const {
 	}
 	// Handle directory
 	if (S_ISDIR(st.st_mode)) {
-		// Check if directory access is allowed
-		if (path != "/" && path != location->path) {
+		if (path != "/" && path != location->path) {	// Check if directory access is allowed
 			std::string locationRoot = location->root;
 			bool isListedPath = false;
 			if (fullPath.find(locationRoot) == 0) {
@@ -172,7 +176,7 @@ Response RequestHandler::handleGET(const HTTPRequest &request) const {
 			if (!isListedPath)
 				return Response::makeErrorResponse(403);
 		}
-		// First try index file
+		// First try the index file
 		std::string indexPath = findFirstExistingIndex(fullPath,
 													   location->index.empty() ? _config.index : location->index);
 		if (!indexPath.empty())
@@ -189,7 +193,7 @@ Response RequestHandler::handleGET(const HTTPRequest &request) const {
 	return FileHandler::serveFile(fullPath, path);
 }
 
-Response RequestHandler::handlePOST(const HTTPRequest &request) const {
+Response RequestHandler::handlePOST(const Request &request) const {
 	std::string path = request.getPath();
 	const LocationConfig *location = getLocation(path);
 
@@ -215,22 +219,20 @@ Response RequestHandler::handlePOST(const HTTPRequest &request) const {
 	// File upload handling
 	const std::string& contentType = request.getHeader("Content-Type");
 	if (contentType.find("multipart/form-data") != std::string::npos) {
-		if (!location->path.empty()) {
+		if (!location->path.empty())
 			return FileHandler::handleFileUpload(request, *location);
-		}
 		return Response::makeErrorResponse(403);
 	}
 
 	// Regular POST request
 	Response response(200);
 	response.addHeader("Content-Type", "text/plain");
-	if (!request.getBody().empty()) {
+	if (!request.getBody().empty())
 		response.setBody(request.getBody());
-	}
 	return response;
 }
 
-Response RequestHandler::handleDELETE(const HTTPRequest &request) const {
+Response RequestHandler::handleDELETE(const Request &request) const {
 	const LocationConfig *location = getLocation(request.getPath());
 	if (!location)
 		return Response::makeErrorResponse(404);
@@ -256,11 +258,33 @@ std::string RequestHandler::findFirstExistingIndex(const std::string& dirPath, c
 	return "";
 }
 
-Response RequestHandler::handlePUT(const HTTPRequest &request) const {
-	// Just return OK without saving
+Response RequestHandler::handlePUT(const Request &request) const {
+	// NOT IMPLEMENTED - Just returns OK without saving
 	(void)request;
 	Response response(200);
 	response.addHeader("Content-Type", "text/plain");
 	response.setBody("OK");
 	return response;
+}
+
+void RequestHandler::handleCookies(const Request &request, Response &response) const {
+	// Set server identification cookie
+	response.setCookie("server", "webserv/1.0", "", "/");
+	// Check for existing session
+	std::map<std::string, std::string> cookies = request.getCookies();
+	std::map<std::string, std::string>::iterator it = cookies.find("session_id");
+
+	// Update visit count
+	int visits = 1;
+	std::map<std::string, std::string>::iterator visitsIt = cookies.find("visits");
+	if (visitsIt != cookies.end())
+		visits = std::atoi(visitsIt->second.c_str()) + 1;
+	response.setCookie("visits", Utils::numToString(visits), "", "/");
+	// If no session exists or session is invalid, create a new one
+	if (it == cookies.end()) {
+		response.setSessionId(SessionManager::getInstance().createSession()->getId());
+		response.setCookie("visits", "1", "", "/");
+	} else {
+		SessionManager::getInstance().updateSession(it->second);
+	}
 }

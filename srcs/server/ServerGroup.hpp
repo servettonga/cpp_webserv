@@ -13,8 +13,8 @@
 #ifndef SERVER_GROUP_HPP
 #define SERVER_GROUP_HPP
 
+#include "../WebServ.hpp"
 #include "Server.hpp"
-#include <vector>
 
 class ServerGroup {
 	private:

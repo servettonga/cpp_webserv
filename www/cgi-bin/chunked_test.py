@@ -1,49 +1,57 @@
-#!/usr/bin/env python3
-import cgi
+#!/usr/bin/python3
+
 import os
-import time
 import sys
+import time
+import urllib.parse
 
-# Send headers
-print("Content-Type: text/html")
-print("Transfer-Encoding: chunked")
-print()
-sys.stdout.flush()
+def parse_post_data(data):
+    result = {}
+    pairs = data.split('&')
+    for pair in pairs:
+        if '=' in pair:
+            key, value = pair.split('=', 1)
+            result[urllib.parse.unquote_plus(key)] = urllib.parse.unquote_plus(value)
+    return result
 
-# Send data in chunks with delays
-chunks = [
-    "<html><body><h1>Chunked Transfer Test</h1>",
-    "<p>This is chunk 1 - Testing chunked response</p>",
-    "<p>This is chunk 2 - With artificial delay</p>",
-    "<h2>Environment Variables:</h2><ul>",
-]
+def main():
+    # Send headers
+    print("Content-Type: text/html; charset=utf-8")
+    print("Status: 200 OK")
+    print()
+    sys.stdout.flush()
 
-# Add environment variables
-env_vars = []
-for key, value in os.environ.items():
-    env_vars.append(f"<li>{key}: {value}</li>")
-chunks.extend(env_vars)
-chunks.append("</ul>")
+    chunks = [
+        "<html><body><h1>Chunked Transfer Test</h1>",
+        "<p>This is chunk 1 - Testing chunked response</p>",
+        "<p>This is chunk 2 - With artificial delay</p>",
+        "<h2>Environment Variables:</h2><ul>"
+    ]
 
-# Handle form data if present
-form = cgi.FieldStorage()
-if form:
-    chunks.append("<h2>Form Data:</h2><ul>")
-    for key in form.keys():
-        chunks.append(f"<li>{key}: {form[key].value}</li>")
+    # Add environment variables
+    for key, value in sorted(os.environ.items()):
+        chunks.append(f"<li><strong>{key}:</strong> {value}</li>")
     chunks.append("</ul>")
 
-chunks.append("</body></html>")
+    # Handle POST data
+    if os.environ.get('REQUEST_METHOD') == 'POST':
+        content_length = int(os.environ.get('CONTENT_LENGTH', 0))
+        if content_length > 0:
+            post_data = sys.stdin.buffer.read(content_length).decode('utf-8')
+            chunks.append("<h2>POST Data:</h2><ul>")
+            for key, value in parse_post_data(post_data).items():
+                chunks.append(f"<li><strong>{key}:</strong> {value}</li>")
+            chunks.append("</ul>")
 
-# Send chunks with delay
-for chunk in chunks:
-    print(f"{len(chunk):X}")  # Size in hex
-    print(chunk)
-    print()  # Empty line after chunk
-    sys.stdout.flush()
-    time.sleep(0.5)  # Add delay between chunks
+    chunks.append("</body></html>")
 
-# Send final chunk
-print("0")
-print()
-sys.stdout.flush()
+    # Send chunks
+    for chunk in chunks:
+        print(chunk)
+        sys.stdout.flush()
+        time.sleep(0.5)
+
+if __name__ == "__main__":
+    if hasattr(sys.stdout, 'buffer'):
+        sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', buffering=1)
+    main()

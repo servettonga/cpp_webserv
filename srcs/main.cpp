@@ -10,30 +10,29 @@
 /*                                                                            */
 /* ************************************************************************** */
 
-#include "utils/ConfigParser.hpp"
+#include "WebServ.hpp"
+#include "config/ConfigParser.hpp"
 #include "server/ServerGroup.hpp"
-#include <iostream>
-#include <csignal>
 
 void displayErrors(const std::vector<std::string>& errors) {
 	for (std::vector<std::string>::const_iterator it = errors.begin();
 		 it != errors.end(); ++it) {
-		std::cerr << "Config Error: " << *it << std::endl;
+		std::cerr << "Config Error: " << *it << "\n";
 	}
 }
 
 int main(const int argc, char *argv[]) {
 	try {
-		std::string configFile = argc > 1 ? argv[1] : "config/default.conf";
+		std::string configFile = argc > 1 ? argv[1] : DEFAULT_CONFIG_FILE;
 
-		std::cout << "Starting server with config file: " << configFile << std::endl;
+		std::cout << GREEN << "Starting server with config file: " << configFile << "\n" << RESET;
 
 		// Create config parser and validate configuration
 		ConfigParser parser(configFile);
-		std::cout << "Validating configuration..." << std::endl;
+		std::cout << "Validating configuration...\n";
 
 		if (!parser.validate()) {
-			std::cerr << "Configuration validation failed:\n";
+			std::cerr << RED << "Configuration validation failed:\n" << RESET;
 			displayErrors(parser.getErrors());
 			return 1;
 		}
@@ -43,27 +42,25 @@ int main(const int argc, char *argv[]) {
 		std::vector<ServerConfig> configs = parser.parse();
 
 		if (configs.empty()) {
-			std::cerr << "No valid server configurations found\n";
+			std::cerr << RED << "No valid server configurations found\n" << RESET;
 			return 1;
 		}
 
-		std::cout << "Initializing server group..." << std::endl;
+		std::cout << "Initializing server group...\n";
 		ServerGroup serverGroup(configFile);
-
-		std::cout << "Adding servers to group..." << std::endl;
 		for (std::vector<ServerConfig>::iterator it = configs.begin();
 			 it != configs.end(); ++it) {
 			serverGroup.addServer(*it);
 		}
 
-		std::cout << "Setting up signal handlers..." << std::endl;
+		std::cout << "Setting up signal handlers...\n";
 		signal(SIGPIPE, SIG_IGN);
 
-		std::cout << "Starting server group..." << std::endl;
+		std::cout << "Starting server group...\n";
 		serverGroup.start();
 
 	} catch (const std::exception& e) {
-		std::cerr << "Fatal error: " << e.what() << std::endl;
+		std::cerr << RED << "Fatal error: " << e.what() << std::endl << RESET;
 		return 1;
 	}
 

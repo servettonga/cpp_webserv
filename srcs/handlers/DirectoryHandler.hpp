@@ -13,12 +13,9 @@
 #ifndef DIRECTORY_HANDLER_HPP
 #define DIRECTORY_HANDLER_HPP
 
+#include "../WebServ.hpp"
 #include "../http/Response.hpp"
-#include "../server/ServerConfig.hpp"
-#include <string>
-#include <sys/stat.h>
-#include <dirent.h>
-
+#include "../config/ServerConfig.hpp"
 
 class DirectoryHandler {
 	public:
@@ -28,13 +25,9 @@ class DirectoryHandler {
 	private:
 		static std::string createListingHeader(const std::string& urlPath);
 		static std::string createDeleteScript();
-
 		static std::string formatFileSize(const struct stat &st);
-
 		static std::string formatModTime(const struct stat &st);
-
 		static std::string createListingBody(DIR *dir, const std::string &path, const std::string &urlPath);
-
 };
 
 #endif

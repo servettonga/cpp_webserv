@@ -6,18 +6,28 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 20:07:58 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/03 14:18:07 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/25 23:12:59 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "Response.hpp"
-#include "../utils/Utils.hpp"
-#include <sstream>
-#include <cerrno>
-#include <sys/socket.h>
-#include <csignal>
-#include <cstring>
-#include <iostream>
+
+Response::Response(int statusCode, const std::string &serverName) :
+		_statusCode(statusCode),
+		_isRawOutput(false),
+		_fileDescriptor(-1),
+		_bytesWritten(0),
+		_isStreaming(false),
+		_isHeadersSent(false),
+		_cookies() {
+	_headers["Server"] = serverName;
+	if (statusCode == 100) {
+		_rawOutput = "HTTP/1.1 100 Continue\r\n\r\n";
+		_isRawOutput = true;
+	}
+	setCookie("test_cookie", "webserv");
+	setCookie("test_message", "hello");
+}
 
 Response::~Response() {}
 
@@ -34,7 +44,12 @@ void Response::setBody(const std::string &body) {
 void Response::addHeader(const std::string &name, const std::string &value) {
 	if (name.empty() || name.find_first_of("\r\n\0") != std::string::npos)
 		return;
-	_headers[name] = value;
+	if (name == "Set-Cookie") {
+		std::string key = "Set-Cookie_" + Utils::numToString(_headers.size());
+		_headers[key] = value;
+	} else {
+		_headers[name] = value;
+	}
 }
 
 void Response::updateContentLength() {
@@ -48,17 +63,15 @@ std::string Response::toString() const {
 						   Utils::numToString(_statusCode) + " " +
 						   getStatusText() + "\r\n";
 
-	// Add Content-Length for all responses
 	response += "Content-Length: " + Utils::numToString(_body.length()) + "\r\n";
 
-	// Add other headers
-	for (std::map<std::string, std::string>::const_iterator it = _headers.begin();
-		 it != _headers.end(); ++it) {
-		if (it->first != "Content-Length") { // Skip if we already added it
+	// Add headers
+	for (std::map<std::string, std::string>::const_iterator it = _headers.begin(); it != _headers.end(); ++it)
+		if (it->first != "Content-Length" && it->first != "Set-Cookie")
 			response += it->first + ": " + it->second + "\r\n";
-		}
-	}
-
+	for (std::map<std::string, std::string>::const_iterator it = _headers.begin(); it != _headers.end(); ++it)
+		if (it->first == "Set-Cookie")
+			response += "Set-Cookie: " + it->second + "\r\n";
 	response += "\r\n";
 	response += _body;
 	return response;
@@ -162,39 +175,6 @@ Response Response::makeErrorResponse(int statusCode) {
         return response;
 }
 
-void Response::setChunked(bool chunked) { _isChunked = chunked; }
-
-bool Response::isChunked() const { return _isChunked; }
-
-void Response::setRawOutput(const std::string &output) {
-	_isRawOutput = true;
-	_rawOutput = output;
-}
-
-bool Response::hasHeader(const char *string) {
-	for (std::map<std::string, std::string>::const_iterator it = _headers.begin();
-		 it != _headers.end(); ++it) {
-		if (it->first == string)
-			return true;
-	}
-	return false;
-}
-
-std::string Response::getBody() { return _body; }
-
-std::string Response::getHeader(const char *name) {
-	std::map<std::string, std::string>::const_iterator it = _headers.find(name);
-	return it != _headers.end() ? it->second : "";
-}
-
-std::map<std::string, std::string> Response::getHeaders() { return _headers; }
-
-int Response::getStatusCode() { return _statusCode; }
-
-void Response::clearHeaders() {
-
-}
-
 void Response::setFileDescriptor(int fd) {
 	closeFileDescriptor(); // Close existing fd if any
 	_fileDescriptor = fd;
@@ -220,7 +200,7 @@ bool Response::writeNextChunk(int clientFd) {
 		}
 
 		// Send file content
-		char buffer[8192];
+		char buffer[RESPONSE_SIZE];
 		ssize_t bytesRead = read(_fileDescriptor, buffer, sizeof(buffer));
 
 		if (bytesRead > 0) {
@@ -232,10 +212,9 @@ bool Response::writeNextChunk(int clientFd) {
 			}
 			_bytesWritten += bytesWritten;
 			return true;
-		} else if (bytesRead == 0) {
-			// EOF reached
+		} else if (bytesRead == 0) {	// EOF reached
 			closeFileDescriptor();
-			_isStreaming = false;  // Mark streaming as complete
+			_isStreaming = false;	// Mark streaming as complete
 			return false;
 		}
 	} catch (const std::exception& e) {
@@ -243,7 +222,6 @@ bool Response::writeNextChunk(int clientFd) {
 		_isStreaming = false;
 		return false;
 	}
-
 	return false;
 }
 
@@ -254,4 +232,38 @@ void Response::closeFileDescriptor() {
 	}
 }
 
+void Response::setCookie(const std::string& name, const std::string& value,
+						 const std::string& expires, const std::string& path) {
+	std::string cookie = name + "=" + value;
+	if (!expires.empty()) cookie += "; Expires=" + expires;
+	if (!path.empty()) cookie += "; Path=" + path;
+	_cookies[name] = cookie;
+}
+
+std::string Response::getHeadersString() const {
+	std::string headers = "HTTP/1.1 " + Utils::numToString(_statusCode) + " " + getStatusText() + "\r\n";
+
+	// Add regular headers
+	for (std::map<std::string, std::string>::const_iterator it = _headers.begin(); it != _headers.end(); ++it)
+		headers += it->first + ": " + it->second + "\r\n";
+
+	// Add cookies
+	for (std::map<std::string, std::string>::const_iterator it = _cookies.begin(); it != _cookies.end(); ++it)
+		headers += "Set-Cookie: " + it->second + "\r\n";
+
+	headers += "\r\n";
+	return headers;
+}
+
+void Response::clearSession() { clearCookie("session_id"); }
+
+void Response::clearCookie(const std::string& name) {
+	if (name.empty()) return;
+	setCookie(name, "", "Thu, 01 Jan 1970 00:00:00 GMT", "/");
+}
+
+void Response::setSessionId(const std::string& sessionId) {
+	if (!sessionId.empty())
+		setCookie("session_id", sessionId, "", "/; Max-Age=3600");
+}
 

@@ -8,7 +8,7 @@ echo "<h1>PHP CGI Test</h1>";
 echo "<h2>Environment Variables:</h2>";
 echo "<ul>";
 foreach ($_SERVER as $key => $value) {
-    echo "<li>$key: $value</li>";
+    echo "<li><strong>$key:</strong> $value</li>";
 }
 echo "</ul>";
 
@@ -17,7 +17,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     echo "<h2>POST Data:</h2>";
     echo "<ul>";
     foreach ($_POST as $key => $value) {
-        echo "<li>$key: $value</li>";
+        echo "<li><strong>$key:</strong> $value</li>";
     }
     echo "</ul>";
 }

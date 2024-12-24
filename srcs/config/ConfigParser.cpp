@@ -11,7 +11,7 @@
 /* ************************************************************************** */
 
 #include "ConfigParser.hpp"
-#include "Utils.hpp"
+#include "../utils/Utils.hpp"
 #include <cstdlib>
 #include <sys/stat.h>
 #include <cstring>

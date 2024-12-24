@@ -6,16 +6,12 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/11/29 20:07:50 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/12 18:23:40 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/24 21:03:08 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "DirectoryHandler.hpp"
 #include "FileHandler.hpp"
-#include "../utils/Utils.hpp"
-#include <sys/stat.h>
-#include <ctime>
-#include <sstream>
 
 Response DirectoryHandler::handleDirectory(const std::string &dirPath, const LocationConfig &location, const std::string& requestPath) {
 	if (!location.autoindex)
@@ -118,7 +114,10 @@ std::string DirectoryHandler::createListingHeader(const std::string &urlPath) {
 		   << "                        <a class=\"nav-link\" href=\"/cgi-test.html\">CGI Test</a>\n"
 		   << "                    </li>\n"
 		   << "                    <li class=\"nav-item\">\n"
-		   << "                        <a class=\"nav-link\" href=\"/upload\">Upload</a>\n"
+		   << "                        <a class=\"nav-link\" href=\"/upload\">Uploads</a>\n"
+		   << "                    </li>\n"
+		   << "                    <li class=\"nav-item\">\n"
+		   << "                        <a class=\"nav-link\" href=\"/cookie-test.html\">Cookies</a>\n"
 		   << "                    </li>\n"
 		   << "                </ul>\n"
 		   << "            </div>\n"
@@ -167,7 +166,7 @@ std::string DirectoryHandler::createListingBody(DIR* dir, const std::string &pat
 	std::stringstream body;
 	struct dirent* entry;
 
-	// Add parent directory link
+	// Add the parent directory link
 	if (urlPath != "/" && !urlPath.empty()) {
 		std::string parentPath = urlPath.substr(0, urlPath.find_last_of('/'));
 		if (parentPath.empty()) parentPath = "/";

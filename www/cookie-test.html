@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cookie Test Page</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        :root {
+            /* Light theme */
+            --bg-color: #ffffff;
+            --text-color: #212529;
+            --card-bg: #ffffff;
+            --border-color: #dee2e6;
+            --primary-color: #0d6efd;
+            --hover-bg: rgba(13, 110, 253, 0.05);
+            --response-bg: #f8f9fa;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            transition: all 0.3s ease;
+        }
+
+        .cookie-container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+    </style>
+</head>
+<body>
+<nav class="navbar navbar-expand-lg mb-4">
+    <div class="container">
+        <a class="navbar-brand" href="/">Webserv</a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav me-auto">
+                <li class="nav-item">
+                    <a class="nav-link" href="/static">Static Files</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="/cgi-test.html">CGI Test</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="/upload">Uploads</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="/cookie-test.html">Cookies</a>
+                </li>
+            </ul>
+        </div>
+    </div>
+</nav>
+
+<div class="container cookie-container">
+    <h1 class="mb-4">Cookie Test Page</h1>
+    <div class="card mb-4">
+        <div class="card-body">
+            <h5 class="card-title">Session Information</h5>
+            <div id="sessionInfo" class="list-group">
+            </div>
+        </div>
+    </div>
+    <div class="card mb-4">
+        <div class="card-body">
+            <h5 class="card-title">Set Cookie</h5>
+            <div class="mb-3">
+                <label for="cookieName" class="form-label">Cookie Name</label>
+                <input type="text" class="form-control" id="cookieName">
+            </div>
+            <div class="mb-3">
+                <label for="cookieValue" class="form-label">Cookie Value</label>
+                <input type="text" class="form-control" id="cookieValue">
+            </div>
+            <button class="btn btn-primary" onclick="setCookie()">Set Cookie</button>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <h5 class="card-title">Current Cookies</h5>
+            <div id="cookieList" class="list-group">
+            </div>
+        </div>
+    </div>
+
+    <button class="btn btn-secondary" onclick="window.location.href='/'">Back to Home</button>
+</div>
+
+<script>
+    function updateSessionInfo() {
+        const sessionInfo = document.getElementById('sessionInfo');
+        const cookies = document.cookie.split(';');
+        let sessionId = '';
+        let serverCookie = '';
+        let visitsCount = '';
+
+        cookies.forEach(cookie => {
+            console.log(cookie);
+            const [name, value] = cookie.trim().split('=');
+            if (name === 'session_id') {
+                sessionId = value;
+            } else if (name === 'server') {
+                serverCookie = value;
+            } else if (name === 'visits') {
+                visitsCount = value;
+            }
+        });
+
+        // Add debug logging
+        console.log('Cookies found:', { sessionId, serverCookie, visitsCount });
+
+        if (sessionId) {
+            sessionInfo.innerHTML = `
+            <div class="list-group">
+                <div class="list-group-item">
+                    <strong>Session ID:</strong> ${sessionId}
+                    <button class="btn btn-danger btn-sm float-end" onclick="clearSession()">Clear Session</button>
+                </div>
+                <div class="list-group-item">
+                    <strong>Server:</strong> ${serverCookie || 'Not set'}
+                    <button class="btn btn-secondary btn-sm float-end" onclick="clearCookie('server')">Clear</button>
+                </div>
+                <div class="list-group-item">
+                    <strong>Number of Visits:</strong> ${visitsCount || '1'}
+                    <button class="btn btn-secondary btn-sm float-end" onclick="clearCookie('visits')">Clear</button>
+                </div>
+            </div>`;
+        } else {
+            sessionInfo.innerHTML = '<div class="list-group-item">No active session</div>';
+        }
+    }
+
+    function clearCookie(name) {
+        document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
+        updateSessionInfo();
+        updateCookieList();
+    }
+    function clearSession() {
+        document.cookie = 'session_id=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
+        updateSessionInfo();
+        updateCookieList();
+    }
+    function updateCookieList() {
+        const cookieList = document.getElementById('cookieList');
+        cookieList.innerHTML = '';
+
+        const cookies = document.cookie.split(';');
+        if (cookies[0] === '') return;
+
+        cookies.forEach(cookie => {
+            const [name, value] = cookie.trim().split('=');
+            const item = document.createElement('div');
+            item.className = 'list-group-item d-flex justify-content-between align-items-center';
+            item.innerHTML = `
+            <span>${decodeURIComponent(name)}: ${decodeURIComponent(value)}</span>
+            <button class="btn btn-danger btn-sm" onclick="deleteCookie('${name}')">Delete</button>
+        `;
+            cookieList.appendChild(item);
+        });
+    }
+
+    function setCookie() {
+        const name = encodeURIComponent(document.getElementById('cookieName').value.trim());
+        const value = encodeURIComponent(document.getElementById('cookieValue').value.trim());
+
+        if (!name || !value) {
+            alert('Both name and value are required');
+            return;
+        }
+
+        document.cookie = `${name}=${value}; path=/`;
+        updateCookieList();
+
+        document.getElementById('cookieName').value = '';
+        document.getElementById('cookieValue').value = '';
+    }
+
+    function deleteCookie(name) {
+        document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
+        updateCookieList();
+    }
+
+    // Initialize cookie list on page load
+    document.addEventListener('DOMContentLoaded', () => {
+        updateCookieList();
+        updateSessionInfo();
+    });
+</script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
