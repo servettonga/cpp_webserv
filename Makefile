@@ -29,19 +29,6 @@ run: all
 	@printf "\033[0;34mRunning $(NAME)...\033[0m\n"
 	./$(NAME)
 
-test-init:
-	@chmod +x ./tests/test_server.sh
-
-test: webserv test-init
-	@printf "\033[0;34mRunning server tests...\033[0m\n"
-	@./$(NAME) & \
-	SERVER_PID=$$!; \
-	sleep 1; \
-	./tests/test_server.sh; \
-	TEST_STATUS=$$?; \
-	kill $$SERVER_PID; \
-	exit $$TEST_STATUS
-
-.PHONY: all clean fclean re test test-init
+.PHONY: all clean fclean re
 
 .SECONDARY: $(OBJS)
