@@ -3,164 +3,308 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Home Page</title>
+    <title>Webserv Control Panel</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
+        :root {
+            /* Base colors */
+            --bg-color: #f8f9fa;
+            --text-color: #212529;
+            --card-bg: #ffffff;
+            --border-color: #dee2e6;
+            --primary-color: #0d6efd;
+            --hover-bg: rgba(13, 110, 253, 0.05);
+        }
+
         body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 0;
-            background-color: #f4f4f4;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            transition: all 0.3s ease;
         }
-        header {
-            background-color: #333;
-            color: #fff;
-            padding: 1rem 0;
-            text-align: center;
+
+        .card {
+            background-color: var(--card-bg);
+            border: none;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease;
         }
-        nav {
-            display: flex;
-            justify-content: center;
-            background-color: #444;
+
+        .card:hover {
+            transform: translateY(-5px);
         }
-        nav a {
-            color: #fff;
-            padding: 1rem;
-            text-decoration: none;
+
+        .nav-link {
+            color: var(--text-color);
+            transition: color 0.3s ease;
         }
-        nav a:hover {
-            background-color: #555;
+
+        .nav-link:hover {
+            color: #0d6efd;
         }
-        section {
+
+        .feature-icon {
+            font-size: 2rem;
+            margin-bottom: 1rem;
+        }
+
+        .upload-area {
+            border: 2px dashed var(--border-color);
+            border-radius: 8px;
             padding: 2rem;
             text-align: center;
-        }
-        footer {
-            background-color: #333;
-            color: #fff;
-            text-align: center;
-            padding: 1rem 0;
-            position: fixed;
-            width: 100%;
-            bottom: 0;
-        }
-        .upload-form {
-            margin-top: 2rem;
-            text-align: center;
-        }
-
-        .upload-form input[type="file"] {
-            margin-right: 1rem;
-            padding: 0.5rem;
-        }
-
-        .upload-form button {
-            padding: 0.5rem 1rem;
             cursor: pointer;
-            background-color: #4CAF50;
-            color: white;
-            border: none;
-            border-radius: 4px;
+            transition: all 0.3s ease;
         }
 
-        .upload-form button:hover {
-            background-color: #45a049;
+        .upload-area {
+            border: 2px dashed var(--border-color);
+            border-radius: 8px;
+            padding: 2rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .upload-area:hover,
+        .upload-area.border-primary {
+            border-color: var(--primary-color);
+            background-color: var(--hover-bg);
         }
 
         .error-message {
-            color: #721c24;
-            background-color: #f8d7da;
-            border: 1px solid #f5c6cb;
-            border-radius: 4px;
-            padding: 1rem;
-            margin: 1rem auto;
-            max-width: 80%;
             display: none;
+            margin-top: 1rem;
         }
     </style>
 </head>
 <body>
-<header>
-    <h1>Home Page</h1>
-</header>
-<nav>
-    <a href="#home">Home</a>
-    <a href="files">Files Directory</a>
+<nav class="navbar navbar-expand-lg mb-4">
+    <div class="container">
+        <a class="navbar-brand" href="#">Webserv</a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav me-auto">
+                <li class="nav-item">
+                    <a class="nav-link" href="/static">Static Files</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="/cgi-test.html">CGI Test</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="/upload">Uploads</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="/cookie-test.html">Cookies</a>
+                </li>
+            </ul>
+        </div>
+    </div>
 </nav>
-<section id="home">
-    <h2>Home</h2>
-    <p>This is the home section of the website.</p>
-</section>
-<section id="upload">
-    <h2>Upload File</h2>
-    <form class="upload-form" id="uploadForm" enctype="multipart/form-data">
-        <input type="file" name="file" required>
-        <button type="submit">Upload</button>
-    </form>
-    <div id="errorMessage" class="error-message"></div>
-</section>
-<footer>
-    <p>&copy; 2024 Website</p>
-</footer>
+
+<div class="container py-4">
+    <div class="row mb-5">
+        <div class="col-md-8 mx-auto text-center">
+            <h1 class="display-4 mb-3">Welcome to Webserv</h1>
+            <p class="lead">A web server implementation in C++98</p>
+        </div>
+    </div>
+
+    <div class="row g-4 mb-5" id="features">
+        <div class="col-md-3">
+            <div class="card h-100 p-4">
+                <div class="text-primary feature-icon">📁</div>
+                <h3>Static Files</h3>
+                <p>Browse auto indexed directory contents with a clean directory listing.</p>
+                <a href="/static" class="btn btn-primary mt-auto">Browse Files</a>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card h-100 p-4">
+                <div class="text-primary feature-icon">⚙️</div>
+                <h3>CGI Support</h3>
+                <p>Execute CGI scripts with Python, PHP, and more.</p>
+                <a href="/cgi-test.html" class="btn btn-primary mt-auto">Test CGI</a>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card h-100 p-4">
+                <div class="text-primary feature-icon">🔄</div>
+                <h3>File Management</h3>
+                <p>Browse, upload, and manage files easily through an interface.</p>
+                <a href="/upload" class="btn btn-primary mt-auto">View Uploads</a>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card h-100 p-4">
+                <div class="text-primary feature-icon">🔄</div>
+                <h3>Cookies & Session</h3>
+                <p>Test cookie handling functionality</p>
+                <a href="/cookie-test.html" class="btn btn-primary mt-auto">Manage Cookies</a>
+            </div>
+        </div>
+    </div>
+    <div class="modal fade" id="responseModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"></h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body"></div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="row mb-5">
+        <div class="col-md-8 mx-auto">
+            <div class="card">
+                <div class="card-body">
+                    <h3 class="card-title mb-4">Quick Upload</h3>
+                    <div class="upload-area" id="uploadArea">
+                        <form id="uploadForm" class="upload-form" enctype="multipart/form-data">
+                            <input type="file" name="file" class="d-none" id="fileInput" required>
+                            <div class="mb-3">
+                                <div class="upload-icon mb-2">📤</div>
+                                <p class="mb-0" id="uploadText">Drag & drop a file here or click to select</p>
+                                <small class="text-muted">Maximum file size: 200MB</small>
+                            </div>
+                        </form>
+                    </div>
+                    <div id="errorMessage" class="alert alert-danger error-message"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-    function extractErrorMessage(htmlString) {
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(htmlString, 'text/html');
+    // Upload Handling
+    const uploadArea = document.getElementById('uploadArea');
+    const fileInput = document.getElementById('fileInput');
+    const uploadForm = document.getElementById('uploadForm');
+    const uploadText = document.getElementById('uploadText');
 
-        // Try to find the error message in common locations
-        const errorText = doc.querySelector('body')?.textContent?.trim() ||
-            doc.querySelector('pre')?.textContent?.trim() ||
-            doc.querySelector('p')?.textContent?.trim() ||
-            'Unknown error occurred';
-
-        return errorText;
-    }
-
-    function showError(message) {
-        const errorElement = document.getElementById('errorMessage');
-        errorElement.textContent = message;
-        errorElement.style.display = 'block';
-
-        setTimeout(() => {
-            errorElement.style.display = 'none';
-        }, 10000);
-    }
-
-    document.getElementById('uploadForm').addEventListener('submit', function(e) {
-        e.preventDefault();
-
-        const errorElement = document.getElementById('errorMessage');
-        errorElement.style.display = 'none';
-
-        if (confirm('Are you sure you want to upload this file?')) {
-            const formData = new FormData(this);
-            const file = this.querySelector('input[type="file"]').files[0];
-
-            // Check file size before upload
-            if (file.size > 10 * 1024 * 1024) { // 10MB limit
-                showError('File size exceeds 10MB limit');
-                return;
-            }
-
-            fetch('/files/uploads', {
-                method: 'POST',
-                body: formData
-            })
-                .then(response => {
-                    if (response.ok) {
-                        alert('File uploaded successfully');
-                        window.location.href = '/files/uploads';
-                    } else {
-                        return response.text().then(text => {
-                            const errorMessage = extractErrorMessage(text);
-                            showError(errorMessage);
-                        });
-                    }
-                })
-                .catch(err => {
-                    showError('Upload failed: ' + err.message);
-                });
-        }
+    // Prevent default drag behaviors
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        uploadArea.addEventListener(eventName, preventDefaults, false);
+        document.body.addEventListener(eventName, preventDefaults, false);
     });
+
+    function preventDefaults (e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+
+    // Highlight drop zone when item is dragged over it
+    ['dragenter', 'dragover'].forEach(eventName => {
+        uploadArea.addEventListener(eventName, highlight, false);
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+        uploadArea.addEventListener(eventName, unhighlight, false);
+    });
+
+    function highlight(e) {
+        uploadArea.classList.add('border-primary');
+    }
+
+    function unhighlight(e) {
+        uploadArea.classList.remove('border-primary');
+    }
+
+    // Handle dropped files
+    uploadArea.addEventListener('drop', handleDrop, false);
+    uploadArea.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', handleChange);
+
+    function handleDrop(e) {
+        const dt = e.dataTransfer;
+        const files = dt.files;
+        handleFiles(files);
+    }
+
+    function handleChange(e) {
+        const files = this.files;
+        handleFiles(files);
+    }
+
+    function handleFiles(files) {
+        if (files.length > 0) {
+            const file = files[0];
+            uploadText.textContent = `Selected: ${file.name}`;
+            handleUpload(file);
+        }
+    }
+
+    function handleUpload(file) {
+        if (file.size > 200 * 1024 * 1024) {
+            showModal('Error', 'File size exceeds 200MB limit', 'error');
+            return;
+        }
+
+        uploadText.textContent = 'Uploading...';
+        uploadArea.classList.add('opacity-50');
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        fetch('/upload', {
+            method: 'POST',
+            body: formData
+        })
+            .then(response => {
+                uploadArea.classList.remove('opacity-50');
+                if (response.ok) {
+                    showModal('Success', 'File uploaded successfully', 'success')
+                        .then(() => window.location.href = '/upload');
+                } else {
+                    return response.text().then(text => {
+                        uploadText.textContent = 'Drag & drop a file here or click to select';
+                        showModal('Error', 'Upload failed: ' + text, 'error');
+                    });
+                }
+            })
+            .catch(err => {
+                uploadArea.classList.remove('opacity-50');
+                uploadText.textContent = 'Drag & drop a file here or click to select';
+                showModal('Error', 'Upload failed: ' + err.message, 'error');
+            });
+    }
+
+    function showModal(title, message, type = 'info') {
+        const modal = document.getElementById('responseModal');
+        const modalInstance = new bootstrap.Modal(modal);
+
+        // Set modal content
+        modal.querySelector('.modal-title').textContent = title;
+
+        // Style based on type
+        const modalHeader = modal.querySelector('.modal-header');
+        modalHeader.className = 'modal-header';
+        if (type === 'error') {
+            modalHeader.classList.add('bg-danger', 'text-white');
+        } else if (type === 'success') {
+            modalHeader.classList.add('bg-success', 'text-white');
+        } else {
+            modalHeader.classList.add('bg-primary', 'text-white');
+        }
+
+        // Set message
+        modal.querySelector('.modal-body').textContent = message;
+
+        // Show modal
+        modalInstance.show();
+
+        // Return promise that resolves when modal is closed
+        return new Promise(resolve => {
+            modal.addEventListener('hidden.bs.modal', () => resolve(), { once: true });
+        });
+    }
 </script>
 </body>
 </html>

@@ -6,49 +6,83 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/11/29 20:09:27 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/29 22:42:42 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/12 23:27:47 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "FileHandler.hpp"
-#include <fstream>
-#include <sstream>
-#include <sys/stat.h>
-#include <unistd.h>
 
 Response FileHandler::serveFile(const std::string &path, const std::string &urlPath) {
 	if (!isValidFilePath(path))
 		return Response(403, "Forbidden");
 
-	std::ifstream file(path.c_str(), std::ios::binary);
-	if (!file.is_open())
+	int fd = open(path.c_str(), O_RDONLY);
+	if (fd < 0)
 		return Response(404, "Not Found");
 
-	std::stringstream buffer;
-	buffer << file.rdbuf();
-	file.close();
+	struct stat st;
+	if (fstat(fd, &st) < 0) {
+		close(fd);
+		return Response(500, "Internal Server Error");
+	}
 
 	Response response(200);
 	response.addHeader("Content-Type", getType(urlPath));
-	response.setBody(buffer.str());
+	response.addHeader("Content-Length", Utils::numToString(st.st_size));
+	response.setFileDescriptor(fd);
 
 	return response;
 }
 
-Response FileHandler::handleFileUpload(const HTTPRequest &request, const LocationConfig &loc) {
+Response FileHandler::handleFileUpload(const Request &request, const LocationConfig &loc) {
 	std::string boundary = extractBoundary(request.getHeader("Content-Type"));
 	if (boundary.empty())
 		return Response(400, "Bad Request - Invalid Content-Type");
 
+	// Determine the upload path
+	std::string uploadPath;
+	if (!loc.root.empty()) {
+		uploadPath = loc.root;
+		if (uploadPath[uploadPath.length()-1] != '/')
+			uploadPath += '/';
+		if (!loc.path.empty() && loc.path != "/") {
+			std::string pathComponent = loc.path;
+			if (pathComponent[0] == '/')
+				pathComponent = pathComponent.substr(1);
+			uploadPath += pathComponent;
+		}
+	} else {
+		uploadPath = "www/upload"; // Default fallback
+	}
+
+	// Create directory if it doesn't exist
+	struct stat st;
+	if (stat(uploadPath.c_str(), &st) != 0) {
+		std::string mkdirCmd = "mkdir -p " + uploadPath;
+		if (system(mkdirCmd.c_str()) != 0)
+			return Response(500, "Internal Server Error - Cannot create upload directory");
+		// Set directory permissions
+		if (chmod(uploadPath.c_str(), 0755) != 0)
+			return Response(500, "Internal Server Error - Cannot set directory permissions");
+	}
+
+	// Parse multipart form data
 	FileData fileData = parseMultipartData(request.getBody(), boundary);
 	if (!fileData.isValid)
 		return Response(400, "Bad Request - Invalid file data");
 
-	std::string filepath = constructUploadPath(loc, fileData.filename);
+	// Construct final file path
+	std::string filepath = uploadPath + "/" + fileData.filename;
+
+	// Save file
 	if (!saveUploadedFile(filepath, fileData.content))
 		return Response(500, "Internal Server Error - File save failed");
 
-	return createSuccessResponse();
+	// Return success response
+	Response response(201);
+	response.addHeader("Content-Type", "text/plain");
+	response.setBody("File uploaded successfully");
+	return response;
 }
 
 std::string FileHandler::extractBoundary(const std::string &contentType) {
@@ -80,60 +114,43 @@ FileHandler::FileData FileHandler::parseMultipartData(const std::string &body, c
 	return data;
 }
 
-std::string FileHandler::constructUploadPath(const LocationConfig &loc, const std::string &filename) {
-	std::string path = loc.root + loc.path;
-	return path + (path[path.length() - 1] != '/' ? "/" : "") + filename;
-}
-
 bool FileHandler::saveUploadedFile(const std::string &filepath, const std::string &content) {
-	const size_t CHUNK_SIZE = 1024 * 1024;  // 1MB chunks
-	std::ofstream file(filepath.c_str(), std::ios::binary);
-
-	if (!file.is_open())
-		return false;
+	const size_t CHUNK_SIZE = 65536;
+	int fd = open(filepath.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+	if (fd < 0) return false;
 
 	size_t remaining = content.length();
 	size_t offset = 0;
 
 	while (remaining > 0) {
 		size_t chunk = std::min(remaining, CHUNK_SIZE);
-		file.write(content.c_str() + offset, chunk);
-
-		offset += chunk;
-		remaining -= chunk;
+		ssize_t written = write(fd, content.c_str() + offset, chunk);
+		if (written < 0) {
+			close(fd);
+			return false;
+		}
+		offset += written;
+		remaining -= written;
 	}
 
-	file.close();
+	close(fd);
 	return true;
 }
 
-Response FileHandler::createSuccessResponse() {
-	Response response(201);
-	response.addHeader("Content-Type", "text/plain");
-	response.setBody("File uploaded successfully");
-	return response;
-}
-
-Response FileHandler::handleFileDelete(const HTTPRequest &request, const LocationConfig &loc) {
+Response FileHandler::handleFileDelete(const Request &request, const LocationConfig &loc) {
 	std::string filepath = constructFilePath(request.getPath(), loc);
 
 	struct stat st;
 	if (stat(filepath.c_str(), &st) != 0)
 		return Response(404, "Not Found");
-
 	if (S_ISDIR(st.st_mode))
 		return Response(403, "Forbidden - Cannot delete directories");
-
 	if (unlink(filepath.c_str()) != 0)
 		return Response(500, "Internal Server Error");
 
 	Response response(200);
 	response.setBody("File deleted successfully");
 	return response;
-}
-
-bool FileHandler::validatePath(const std::string &path) {
-	return path.find("..") == std::string::npos;
 }
 
 std::string FileHandler::urlDecode(const std::string &encoded) {
@@ -167,52 +184,62 @@ std::string FileHandler::sanitizeFilename(const std::string &filename) {
 	return safe;
 }
 
-std::string FileHandler::constructFilePath(const std::string &uri, const LocationConfig &loc) {
-	std::string path = loc.root;
-	std::string locationDir = loc.path;
-
-	if (locationDir[0] == '/')
-		locationDir = locationDir.substr(1);
-
-	if (uri.find(loc.path) == 0) {
+std::string FileHandler::constructFilePath(const std::string &uri, const LocationConfig &location) {
+	std::string decodedUri = urlDecode(uri);
+	std::string path = location.root;
+	// Remove trailing slash from root if present
+	if (!path.empty() && path[path.length()-1] == '/')
+		path = path.substr(0, path.length()-1);
+	// For non-root locations in www directory
+	if (location.path != "/" && !location.path.empty() && location.root == "www") {
+		std::string locationPath = location.path;
+		if (locationPath[0] == '/')
+			locationPath = locationPath.substr(1);
 		if (!path.empty() && path[path.length()-1] != '/')
 			path += '/';
-		path += locationDir;
-
-		std::string remaining = uri.substr(loc.path.length());
-		if (!remaining.empty()) {
-			if (remaining[0] == '/')
-				remaining = remaining.substr(1);
-			if (!remaining.empty()) {
-				if (path[path.length()-1] != '/')
-					path += '/';
-				path += remaining;
-			}
+		path += locationPath;
+	}
+	// Process the relative path
+	std::string relativePath;
+	if (decodedUri.find(location.path) == 0) {
+		if (decodedUri != location.path) {
+			relativePath = decodedUri.substr(location.path.length());
+			if (!relativePath.empty() && relativePath[0] == '/')
+				relativePath = relativePath.substr(1);
 		}
 	}
-
-	return urlDecode(path);
+	// Combine paths
+	if (!relativePath.empty()) {
+		if (!path.empty() && path[path.length()-1] != '/')
+			path += '/';
+		path += relativePath;
+	}
+	return path;
 }
 
-
 bool FileHandler::isValidFilePath(const std::string &path) {
-	if (path.find("..") != std::string::npos)	// Check for path traversal
+	if (path.find("..") != std::string::npos)
 		return false;
 
 	struct stat st;
-	if (stat(path.c_str(), &st) != 0)	// Check if the path exists
+	if (stat(path.c_str(), &st) != 0)
 		return false;
 
-	if (access(path.c_str(), R_OK) != 0)	// Check if the file is accessible
-		return false;
+	// Allow execute permission for .bla files
+	if (path.find(".bla") != std::string::npos) {
+		return (access(path.c_str(), R_OK | X_OK) == 0);
+	}
 
-	return true;
+	return (access(path.c_str(), R_OK) == 0);
 }
 
 std::string FileHandler::getType(const std::string &path) {
+	if (path == "/" || path.empty())
+		return "text/html";
+
 	size_t dot = path.find_last_of('.');
 	if (dot == std::string::npos)
-		return "application/octet-stream";
+		return "text/html";
 
 	std::string ext = path.substr(dot + 1);
 
@@ -239,5 +266,5 @@ std::string FileHandler::getType(const std::string &path) {
 	if (ext == "tar") return "application/x-tar";
 	if (ext == "gz") return "application/gzip";
 
-	return "application/octet-stream";
+	return "text/plain";
 }

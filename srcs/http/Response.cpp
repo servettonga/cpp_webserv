@@ -6,20 +6,27 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 20:07:58 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/03 14:18:07 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/25 23:12:59 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "Response.hpp"
-#include "../utils/Utils.hpp"
-#include <sstream>
-
-using namespace Utils;
 
 Response::Response(int statusCode, const std::string &serverName) :
-	_statusCode(statusCode) {
+		_statusCode(statusCode),
+		_isRawOutput(false),
+		_fileDescriptor(-1),
+		_bytesWritten(0),
+		_isStreaming(false),
+		_isHeadersSent(false),
+		_cookies() {
 	_headers["Server"] = serverName;
-	_headers["Content-Type"] = "text/plain";
+	if (statusCode == 100) {
+		_rawOutput = "HTTP/1.1 100 Continue\r\n\r\n";
+		_isRawOutput = true;
+	}
+	setCookie("test_cookie", "webserv");
+	setCookie("test_message", "hello");
 }
 
 Response::~Response() {}
@@ -37,29 +44,37 @@ void Response::setBody(const std::string &body) {
 void Response::addHeader(const std::string &name, const std::string &value) {
 	if (name.empty() || name.find_first_of("\r\n\0") != std::string::npos)
 		return;
-	_headers[name] = value;
+	if (name == "Set-Cookie") {
+		std::string key = "Set-Cookie_" + Utils::numToString(_headers.size());
+		_headers[key] = value;
+	} else {
+		_headers[name] = value;
+	}
 }
 
 void Response::updateContentLength() {
-	_headers["Content-Length"] = StringUtils::numToString(_body.length());
+	_headers["Content-Length"] = Utils::numToString(_body.length());
 }
 
 std::string Response::toString() const {
-	std::stringstream response;
+	if (_isRawOutput)
+		return _rawOutput;
+	std::string response = "HTTP/1.1 " +
+						   Utils::numToString(_statusCode) + " " +
+						   getStatusText() + "\r\n";
 
-	// Status line
-	response << "HTTP/1.1 " << _statusCode << " " << getStatusText() << "\r\n";
+	response += "Content-Length: " + Utils::numToString(_body.length()) + "\r\n";
 
-	// Headers
-	for (std::map<std::string, std::string>::const_iterator it = _headers.begin();
-		 it != _headers.end(); ++it) {
-		response << it->first << ": " << it->second << "\r\n";
-	}
-
-	// Empty line and body
-	response << "\r\n" << _body;
-
-	return response.str();
+	// Add headers
+	for (std::map<std::string, std::string>::const_iterator it = _headers.begin(); it != _headers.end(); ++it)
+		if (it->first != "Content-Length" && it->first != "Set-Cookie")
+			response += it->first + ": " + it->second + "\r\n";
+	for (std::map<std::string, std::string>::const_iterator it = _headers.begin(); it != _headers.end(); ++it)
+		if (it->first == "Set-Cookie")
+			response += "Set-Cookie: " + it->second + "\r\n";
+	response += "\r\n";
+	response += _body;
+	return response;
 }
 
 std::string Response::getStatusText() const {
@@ -121,7 +136,7 @@ Response Response::makeErrorResponse(int statusCode) {
 	}
 
         std::string body =
-            "<html><head><title>" + StringUtils::numToString(statusCode) + " " +
+            "<html><head><title>" + Utils::numToString(statusCode) + " " +
             response.getStatusText() +
             "</title>"
             "<style>"
@@ -145,7 +160,7 @@ Response Response::makeErrorResponse(int statusCode) {
             "<body>\n"
             "    <div class='container'>\n"
             "        <div class='error-code'>" +
-            StringUtils::numToString(statusCode) +
+            Utils::numToString(statusCode) +
             "</div>\n"
             "        <h1>" +
             response.getStatusText() +
@@ -159,3 +174,96 @@ Response Response::makeErrorResponse(int statusCode) {
         response.setBody(body);
         return response;
 }
+
+void Response::setFileDescriptor(int fd) {
+	closeFileDescriptor(); // Close existing fd if any
+	_fileDescriptor = fd;
+	_isStreaming = true;
+	_bytesWritten = 0;
+}
+
+bool Response::writeNextChunk(int clientFd) {
+	if (!_isStreaming || _fileDescriptor < 0)
+		return false;
+
+	try {
+		// Send headers first if not sent
+		if (!_isHeadersSent) {
+			std::string headers = getHeadersString();
+			ssize_t headersSent = send(clientFd, headers.c_str(), headers.length(), MSG_NOSIGNAL);
+			if (headersSent < 0) {
+				if (errno == EAGAIN || errno == EWOULDBLOCK)
+					return true;
+				return false;
+			}
+			_isHeadersSent = true;
+		}
+
+		// Send file content
+		char buffer[RESPONSE_SIZE];
+		ssize_t bytesRead = read(_fileDescriptor, buffer, sizeof(buffer));
+
+		if (bytesRead > 0) {
+			ssize_t bytesWritten = send(clientFd, buffer, bytesRead, MSG_NOSIGNAL);
+			if (bytesWritten < 0) {
+				if (errno == EAGAIN || errno == EWOULDBLOCK)
+					return true;
+				return false;
+			}
+			_bytesWritten += bytesWritten;
+			return true;
+		} else if (bytesRead == 0) {	// EOF reached
+			closeFileDescriptor();
+			_isStreaming = false;	// Mark streaming as complete
+			return false;
+		}
+	} catch (const std::exception& e) {
+		closeFileDescriptor();
+		_isStreaming = false;
+		return false;
+	}
+	return false;
+}
+
+void Response::closeFileDescriptor() {
+	if (_fileDescriptor >= 0) {
+		close(_fileDescriptor);
+		_fileDescriptor = -1;
+	}
+}
+
+void Response::setCookie(const std::string& name, const std::string& value,
+						 const std::string& expires, const std::string& path) {
+	std::string cookie = name + "=" + value;
+	if (!expires.empty()) cookie += "; Expires=" + expires;
+	if (!path.empty()) cookie += "; Path=" + path;
+	_cookies[name] = cookie;
+}
+
+std::string Response::getHeadersString() const {
+	std::string headers = "HTTP/1.1 " + Utils::numToString(_statusCode) + " " + getStatusText() + "\r\n";
+
+	// Add regular headers
+	for (std::map<std::string, std::string>::const_iterator it = _headers.begin(); it != _headers.end(); ++it)
+		headers += it->first + ": " + it->second + "\r\n";
+
+	// Add cookies
+	for (std::map<std::string, std::string>::const_iterator it = _cookies.begin(); it != _cookies.end(); ++it)
+		headers += "Set-Cookie: " + it->second + "\r\n";
+
+	headers += "\r\n";
+	return headers;
+}
+
+void Response::clearSession() { clearCookie("session_id"); }
+
+void Response::clearCookie(const std::string& name) {
+	if (name.empty()) return;
+	setCookie(name, "", "Thu, 01 Jan 1970 00:00:00 GMT", "/");
+}
+
+void Response::setSessionId(const std::string& sessionId) {
+	if (!sessionId.empty())
+		setCookie("session_id", sessionId, "", "/; Max-Age=3600");
+}
+

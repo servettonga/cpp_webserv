@@ -6,89 +6,63 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/26 12:25:04 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/04 22:08:33 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/10 13:33:25 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
-#include "utils/ConfigParser.hpp"
+#include "WebServ.hpp"
+#include "config/ConfigParser.hpp"
 #include "server/ServerGroup.hpp"
-#include <iostream>
-#include <csignal>
+
+void displayErrors(const std::vector<std::string>& errors) {
+	for (std::vector<std::string>::const_iterator it = errors.begin();
+		 it != errors.end(); ++it) {
+		std::cerr << "Config Error: " << *it << "\n";
+	}
+}
 
 int main(const int argc, char *argv[]) {
 	try {
-		std::string configFile = argc > 1 ? argv[1] : "config/default.conf";
-		if (argc == 2) {
-			configFile = argv[1];
-		} else if (argc > 2) {
-			std::cerr << "Usage: " << argv[0] << " [configuration file]\n";
+		std::string configFile = argc > 1 ? argv[1] : DEFAULT_CONFIG_FILE;
+
+		std::cout << GREEN << "Starting server with config file: " << configFile << "\n" << RESET;
+
+		// Create config parser and validate configuration
+		ConfigParser parser(configFile);
+		std::cout << "Validating configuration...\n";
+
+		if (!parser.validate()) {
+			std::cerr << RED << "Configuration validation failed:\n" << RESET;
+			displayErrors(parser.getErrors());
 			return 1;
 		}
-		if (configFile.find(".conf") == std::string::npos) {
-			std::cerr << "Invalid configuration file.\n";
+
+		// Parse configuration
+		std::cout << "Parsing configuration..." << std::endl;
+		std::vector<ServerConfig> configs = parser.parse();
+
+		if (configs.empty()) {
+			std::cerr << RED << "No valid server configurations found\n" << RESET;
 			return 1;
 		}
-		(void)configFile; // TODO: use config file
-		std::cout << "Using hardcoded configuration (config parsing not implemented yet)\n";
 
-		// First server config (main)
-		ServerConfig config;
-		config.host = "0.0.0.0";
-		config.port = 8080;
-		config.root = "www";
+		std::cout << "Initializing server group...\n";
+		ServerGroup serverGroup(configFile);
+		for (std::vector<ServerConfig>::iterator it = configs.begin();
+			 it != configs.end(); ++it) {
+			serverGroup.addServer(*it);
+		}
 
-		// Root location for the main server
-		LocationConfig rootLoc;
-		rootLoc.path = "/";
-		rootLoc.root = "www";
-		rootLoc.index = "index.html";
-		rootLoc.autoindex = false;
-		rootLoc.methods.push_back("GET");
-		config.locations.push_back(rootLoc);
-
-		// Files location for the main server
-		LocationConfig filesLoc;
-		filesLoc.path = "/files";
-		filesLoc.root = "www";
-		filesLoc.autoindex = true;
-		filesLoc.methods.push_back("GET");
-		config.locations.push_back(filesLoc);
-
-		// Uploads location for the main server
-		LocationConfig uploadLoc;
-		uploadLoc.path = "/files/uploads";
-		uploadLoc.root = "www";
-		uploadLoc.autoindex = true;
-		uploadLoc.client_max_body_size = 10 * 1024 * 1024; // 10MB
-		uploadLoc.methods.push_back("GET");
-		uploadLoc.methods.push_back("POST");
-		uploadLoc.methods.push_back("DELETE");
-		config.locations.push_back(uploadLoc);
-
-		// Second server config (portfolio)
-		ServerConfig config2;
-		config2.host = "portfolio.localhost";
-		config2.port = 8081;
-		config2.root = "www";
-
-		// Root location for portfolio server
-		LocationConfig rootLoc2;
-		rootLoc2.path = "/";
-		rootLoc2.root = "www/portfolio";
-		rootLoc2.index = "index.html";
-		rootLoc2.autoindex = false;
-		rootLoc2.methods.push_back("GET");
-		config2.locations.push_back(rootLoc2);
-
-		ServerGroup serverGroup;
-		serverGroup.addServer(config);
-		serverGroup.addServer(config2);
-
+		std::cout << "Setting up signal handlers...\n";
 		signal(SIGPIPE, SIG_IGN);
+
+		std::cout << "Starting server group...\n";
 		serverGroup.start();
-	} catch (const std::exception &e) {
-		std::cerr << "Server error: " << e.what() << std::endl;
+
+	} catch (const std::exception& e) {
+		std::cerr << RED << "Fatal error: " << e.what() << std::endl << RESET;
 		return 1;
 	}
+
 	return 0;
 }

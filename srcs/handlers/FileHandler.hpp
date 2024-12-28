@@ -13,10 +13,10 @@
 #ifndef FILE_HANDLER_HPP
 #define FILE_HANDLER_HPP
 
+#include "../WebServ.hpp"
 #include "../http/Response.hpp"
-#include "../server/ServerConfig.hpp"
-#include "../http/HTTPRequest.hpp"
-#include <string>
+#include "../config/ServerConfig.hpp"
+#include "../http/Request.hpp"
 
 class FileHandler {
 	private:
@@ -27,23 +27,19 @@ class FileHandler {
 			FileData() : isValid(false) {}
 		};
 
-		static bool isValidFilePath(const std::string &path);
 		static std::string extractBoundary(const std::string &contentType);
-
 		static FileData parseMultipartData(const std::string &body, const std::string &boundary);
-		static std::string constructUploadPath(const LocationConfig &loc, const std::string &filename);
 		static bool saveUploadedFile(const std::string &filepath, const std::string &content);
-		static Response createSuccessResponse();
+		static bool isValidFilePath(const std::string &path);
+		static std::string sanitizeFilename(const std::string &filename);
+		static std::string getType(const std::string &path);
 	public:
 		static Response serveFile(const std::string &path, const std::string &urlPath);
-		static Response handleFileUpload(const HTTPRequest &request, const LocationConfig &loc);
-		static Response handleFileDelete(const HTTPRequest &request, const LocationConfig &loc);
+		static Response handleFileUpload(const Request &request, const LocationConfig &loc);
+		static Response handleFileDelete(const Request &request, const LocationConfig &loc);
 
 		static std::string constructFilePath(const std::string &uri, const LocationConfig &loc);
-		static std::string sanitizeFilename(const std::string &filename);
-		static bool validatePath(const std::string &path);
 		static std::string urlDecode(const std::string &encoded);
-		static std::string getType(const std::string &path);
 };
 
 #endif

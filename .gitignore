@@ -35,4 +35,5 @@
 .vscode
 webserv
 
-www/files/uploads
+www/upload
+logs

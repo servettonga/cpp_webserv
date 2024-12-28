@@ -6,47 +6,30 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/11/29 20:07:50 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/03 12:06:03 by sehosaf          ###   ########.fr       */
+/*   Updated: 2024/12/24 21:03:08 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "DirectoryHandler.hpp"
 #include "FileHandler.hpp"
-#include "../utils/Utils.hpp"
-#include <sys/stat.h>
-#include <ctime>
-#include <sstream>
 
-using namespace Utils;
-
-Response DirectoryHandler::handleDirectory(const std::string &path, const LocationConfig &loc) {
-	if (!loc.index.empty()) {
-		std::string indexPath = path + "/" + loc.index;
-		struct stat st;
-		if (stat(indexPath.c_str(), &st) == 0 && !S_ISDIR(st.st_mode))
-			return FileHandler::serveFile(indexPath, "/" + loc.index);
-	}
-	if (!loc.autoindex)
+Response DirectoryHandler::handleDirectory(const std::string &dirPath, const LocationConfig &location, const std::string& requestPath) {
+	if (!location.autoindex)
 		return Response::makeErrorResponse(403);
 
-	// Get the relative path from root
-	std::string relativePath;
-	if (path.find(loc.root) == 0) {
-		relativePath = path.substr(loc.root.length());
-		while (!relativePath.empty() && relativePath[0] == '/')
-			relativePath = relativePath.substr(1);
-	}
+	DIR *dir = opendir(dirPath.c_str());
+	if (!dir)
+		return Response::makeErrorResponse(404);
+	closedir(dir);
 
-	// Use the complete request path for URLs
-	std::string urlPath = relativePath.empty() ? "/" : "/" + relativePath;
-
-	std::string listing = createListing(path, urlPath);
-	if (listing.empty())
+	// Use the actual request path for the directory listing
+	std::string html = createListing(dirPath, requestPath);
+	if (html.empty())
 		return Response::makeErrorResponse(500);
 
 	Response response(200);
 	response.addHeader("Content-Type", "text/html");
-	response.setBody(listing);
+	response.setBody(html);
 	return response;
 }
 
@@ -63,29 +46,101 @@ std::string DirectoryHandler::createListing(const std::string &path, const std::
 		displayPath = displayPath.substr(0, displayPath.length() - 1);
 
 	std::stringstream html;
-	html << createListingHeader(displayPath)
-		 << createListingBody(dir, path, displayPath)
-		 << "</table></body></html>";
+	html << createListingHeader(displayPath);
+	html << createListingBody(dir, path, displayPath);
+	html << "</table></body></html>";
 
 	closedir(dir);
 	return html.str();
 }
 
 std::string DirectoryHandler::createListingHeader(const std::string &urlPath) {
+	std::string displayPath = urlPath;
+	if (!displayPath.empty() && displayPath[displayPath.length() - 1] == '/')
+		displayPath = displayPath.substr(0, displayPath.length() - 1);
+
 	std::stringstream header;
-	header << "<html><head>"
-		   << "<title>Directory: " << urlPath << "</title>"
-		   << "<style>"
-		   << "table{border-collapse:collapse;width:100%}"
-		   << "th,td{padding:8px;text-align:left}"
-		   << "th{background:#f2f2f2}"
-		   << ".delete-btn{color:red;cursor:pointer;margin-left:10px}"
-		   << "</style>"
+	header << "<!DOCTYPE html>\n"
+		   << "<html lang=\"en\">\n"
+		   << "<head>\n"
+		   << "    <meta charset=\"UTF-8\">\n"
+		   << "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n"
+		   << "    <title>Directory: " << displayPath << "</title>\n"
+		   << "    <link href=\"https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css\" rel=\"stylesheet\">\n"
+		   << "    <style>\n"
+		   << "        :root {\n"
+		   << "            --bg-color: #ffffff;\n"
+		   << "            --text-color: #212529;\n"
+		   << "            --card-bg: #ffffff;\n"
+		   << "            --border-color: #dee2e6;\n"
+		   << "            --primary-color: #0d6efd;\n"
+		   << "            --hover-bg: rgba(13, 110, 253, 0.05);\n"
+		   << "        }\n"
+		   << "        body {\n"
+		   << "            background-color: var(--bg-color);\n"
+		   << "            color: var(--text-color);\n"
+		   << "        }\n"
+		   << "        .card {\n"
+		   << "            background-color: var(--card-bg);\n"
+		   << "            border: 1px solid var(--border-color);\n"
+		   << "            border-radius: 8px;\n"
+		   << "            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);\n"
+		   << "        }\n"
+		   << "        .table {\n"
+		   << "            margin-bottom: 0;\n"
+		   << "        }\n"
+		   << "        .delete-btn {\n"
+		   << "            color: #dc3545;\n"
+		   << "            cursor: pointer;\n"
+		   << "            padding: 0.25rem 0.5rem;\n"
+		   << "            border-radius: 0.25rem;\n"
+		   << "        }\n"
+		   << "        .delete-btn:hover {\n"
+		   << "            background-color: rgba(220, 53, 69, 0.1);\n"
+		   << "        }\n"
+		   << "    </style>\n"
 		   << createDeleteScript()
-		   << "</head><body>"
-		   << "<h1>Directory: " << urlPath << "</h1>"
-		   << "<table><tr><th>Name</th><th>Size</th>"
-		   << "<th>Last Modified</th><th>Actions</th></tr>";
+		   << "</head>\n"
+		   << "<body>\n"
+		   << "    <nav class=\"navbar navbar-expand-lg mb-4\">\n"
+		   << "        <div class=\"container\">\n"
+		   << "            <a class=\"navbar-brand\" href=\"/\">Webserv</a>\n"
+		   << "            <div class=\"collapse navbar-collapse\">\n"
+		   << "                <ul class=\"navbar-nav me-auto\">\n"
+		   << "                    <li class=\"nav-item\">\n"
+		   << "                        <a class=\"nav-link\" href=\"/static\">Static Files</a>\n"
+		   << "                    </li>\n"
+		   << "                    <li class=\"nav-item\">\n"
+		   << "                        <a class=\"nav-link\" href=\"/cgi-test.html\">CGI Test</a>\n"
+		   << "                    </li>\n"
+		   << "                    <li class=\"nav-item\">\n"
+		   << "                        <a class=\"nav-link\" href=\"/upload\">Uploads</a>\n"
+		   << "                    </li>\n"
+		   << "                    <li class=\"nav-item\">\n"
+		   << "                        <a class=\"nav-link\" href=\"/cookie-test.html\">Cookies</a>\n"
+		   << "                    </li>\n"
+		   << "                </ul>\n"
+		   << "            </div>\n"
+		   << "        </div>\n"
+		   << "    </nav>\n"
+		   << "    <div class=\"container\">\n"
+		   << "        <div class=\"card\">\n"
+		   << "            <div class=\"card-header bg-primary text-white\">\n"
+		   << "                <h1 class=\"h4 mb-0\">Directory: " << displayPath << "</h1>\n"
+		   << "            </div>\n"
+		   << "            <div class=\"card-body p-0\">\n"
+		   << "                <div class=\"table-responsive\">\n"
+		   << "                    <table class=\"table mb-0\">\n"
+		   << "                        <thead class=\"table-light\">\n"
+		   << "                            <tr>\n"
+		   << "                                <th>Name</th>\n"
+		   << "                                <th>Size</th>\n"
+		   << "                                <th>Last Modified</th>\n"
+		   << "                                <th>Actions</th>\n"
+		   << "                            </tr>\n"
+		   << "                        </thead>\n"
+		   << "                        <tbody>\n";
+
 	return header.str();
 }
 
@@ -115,8 +170,12 @@ std::string DirectoryHandler::createListingBody(DIR* dir, const std::string &pat
 	if (urlPath != "/" && !urlPath.empty()) {
 		std::string parentPath = urlPath.substr(0, urlPath.find_last_of('/'));
 		if (parentPath.empty()) parentPath = "/";
-		body << "<tr><td><a href=\"" << parentPath << "\">..</a></td>"
-			 << "<td>-</td><td>-</td><td></td></tr>";
+		body << "<tr>\n"
+			 << "    <td><a href=\"" << parentPath << "\" class=\"text-decoration-none\">..</a></td>\n"
+			 << "    <td>-</td>\n"
+			 << "    <td>-</td>\n"
+			 << "    <td></td>\n"
+			 << "</tr>\n";
 	}
 
 	while ((entry = readdir(dir)) != NULL) {
@@ -127,31 +186,43 @@ std::string DirectoryHandler::createListingBody(DIR* dir, const std::string &pat
 		struct stat st;
 		std::string fullPath = path + "/" + name;
 		if (stat(fullPath.c_str(), &st) == 0) {
-			// Construct the proper URL path for links
 			std::string entryUrlPath = urlPath + "/" + FileHandler::urlDecode(name);
 
-			body << "<tr><td><a href=\"" << entryUrlPath
+			body << "<tr>\n"
+				 << "    <td><a href=\"" << entryUrlPath
 				 << (S_ISDIR(st.st_mode) ? "/" : "")
-				 << "\">" << name << "</a></td>"
-				 << "<td>" << formatFileSize(st) << "</td>"
-				 << "<td>" << formatModTime(st) << "</td>"
-				 << "<td>";
+				 << "\" class=\"text-decoration-none\">" << name << "</a></td>\n"
+				 << "    <td>" << formatFileSize(st) << "</td>\n"
+				 << "    <td>" << formatModTime(st) << "</td>\n"
+				 << "    <td>";
 
 			if (!S_ISDIR(st.st_mode)) {
-				body << "<a class='delete-btn' onclick='deleteFile(\""
-					 << entryUrlPath << "\")'>Delete</a>";
+				body << "<span class=\"delete-btn\" onclick='deleteFile(\""
+					 << entryUrlPath << "\")'>Delete</span>";
 			}
 
-			body << "</td></tr>";
+			body << "</td>\n"
+				 << "</tr>\n";
 		}
 	}
+
+	body << "                        </tbody>\n"
+		 << "                    </table>\n"
+		 << "                </div>\n"
+		 << "            </div>\n"
+		 << "        </div>\n"
+		 << "    </div>\n"
+		 << "    <script src=\"https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js\"></script>\n"
+		 << "</body>\n"
+		 << "</html>";
+
 	return body.str();
 }
 
 std::string DirectoryHandler::formatFileSize(const struct stat &st) {
 	if (S_ISDIR(st.st_mode))
 		return "-";
-	return StringUtils::numToString(st.st_size) + " bytes";
+	return Utils::numToString(st.st_size) + " bytes";
 }
 
 std::string DirectoryHandler::formatModTime(const struct stat &st) {
