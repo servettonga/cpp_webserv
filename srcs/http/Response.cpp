@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 20:07:58 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/25 23:12:59 by sehosaf          ###   ########.fr       */
+/*   Updated: 2025/01/07 19:20:59 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -267,3 +267,10 @@ void Response::setSessionId(const std::string& sessionId) {
 		setCookie("session_id", sessionId, "", "/; Max-Age=3600");
 }
 
+Response Response::makeRedirect(int code, const std::string& location) {
+    Response response(code);
+    response.addHeader("Location", location);
+    response.addHeader("Content-Type", "text/html");
+    response.setBody("<html><body>Redirecting to " + location + "</body></html>");
+    return response;
+}

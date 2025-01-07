@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/11/03 19:45:02 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/03 14:16:35 by sehosaf          ###   ########.fr       */
+/*   Updated: 2025/01/07 19:15:43 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -16,32 +16,32 @@
 #include "../WebServ.hpp"
 
 struct LocationConfig {
-	std::string path;                    // URL path this location handles
-	std::vector<std::string> methods;    // Allowed HTTP methods (GET, POST, etc.)
-	std::string root;                    // Root directory for this location
-	std::string index;                   // Default index file
-	bool autoindex;                      // Directory listing enabled/disabled
-	std::vector<std::string> cgi_ext;    // CGI file extensions (.php, .py, etc)
-	std::string cgi_path;                // Path to CGI executable
-	unsigned long client_max_body_size;   // Maximum request body size
+	std::string path;					// URL path this location handles
+	std::vector<std::string> methods;	// Allowed HTTP methods (GET, POST, etc.)
+	std::string root;					// Root directory for this location
+	std::string index;					// Default index file
+	bool autoindex;						// Directory listing enabled/disabled
+	std::vector<std::string> cgi_ext;	// CGI file extensions (.php, .py, etc)
+	std::string cgi_path;				// Path to CGI executable
+	unsigned long client_max_body_size;	// Maximum request body size
+	std::string redirect;				// Store redirect target
 
-	LocationConfig() :
-			autoindex(false),
-			client_max_body_size(CLIENT_MAX_BODY) {}
+	LocationConfig()
+		: autoindex(false), client_max_body_size(CLIENT_MAX_BODY), redirect("") {}
 };
 
 // Main server configuration structure
 struct ServerConfig {
 	// Network settings
-	std::string host;                      // Host address to listen on
-	int port;                              // Port number
+	std::string host;					  // Host address to listen on
+	int port;							  // Port number
 	std::vector<std::string> server_names; // Server names for virtual hosting
 
 	// Default server settings
-	std::string root;                      // Server root directory
-	std::string index;                     // Default index file
-	unsigned int client_timeout;           // Client timeout in seconds
-	unsigned long client_max_body_size;    // Maximum request body size
+	std::string root;					// Server root directory
+	std::string index;					// Default index file
+	unsigned int client_timeout;		// Client timeout in seconds
+	unsigned long client_max_body_size;	// Maximum request body size
 
 	// Error pages
 	std::map<int, std::string> error_pages; // Custom error pages mapping

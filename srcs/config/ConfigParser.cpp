@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   ConfigParser.cpp                                   :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: jdepka <jdepka@student.42.fr>              +#+  +:+       +#+        */
+/*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 13:04:01 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/12 19:37:19 by sehosaf          ###   ########.fr       */
+/*   Updated: 2025/01/07 19:25:27 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -185,11 +185,19 @@ void ConfigParser::parseLocation(LocationConfig &location) {
 		else if (directive.first == "allowed_methods") {
 			location.methods.clear();
 			parseAllowedMethods(value, location);
-		}
-		else if (directive.first == "cgi_pass") {
+		} else if (directive.first == "cgi_pass") {
 			location.cgi_path = value;
-		}
-		++_currentLine;
+        } else if (directive.first == "return") {
+            std::istringstream iss(value);
+            std::string code, target;
+            iss >> code >> target;
+            if (code == "301" || code == "302") {
+                if (!target.empty() && target[target.length()-1] == ';')
+                    target = target.substr(0, target.length()-1);
+                location.redirect = target;
+            }
+        }
+        ++_currentLine;
 	}
 }
 
@@ -369,9 +377,8 @@ bool ConfigParser::validateLocations(const ServerConfig &config) const {
 
 		// Don't fail if methods are empty - they might be inherited from server config
 		// Just warn about it
-		if (it->methods.empty()) {
+		if (it->methods.empty())
 			std::cout << "Warning: No methods specified for location " << it->path << std::endl;
-		}
 	}
 	return true;
 }

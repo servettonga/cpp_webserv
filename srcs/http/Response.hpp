@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 20:07:58 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/25 23:15:00 by sehosaf          ###   ########.fr       */
+/*   Updated: 2025/01/07 19:19:45 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -52,6 +52,7 @@ class Response {
 		void clearCookie(const std::string& name);
 		void setSessionId(const std::string& sessionId);
 		void clearSession();
+		Response makeRedirect(int code, const std::string& location);
 };
 
 #endif

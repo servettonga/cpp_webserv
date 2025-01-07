@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 20:05:44 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/25 22:41:26 by sehosaf          ###   ########.fr       */
+/*   Updated: 2025/01/07 19:20:21 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -23,11 +23,16 @@ Response RequestHandler::handleRequest(const Request &request) {
 	req.setConfig(&_config);
 	const LocationConfig *location = getLocation(request.getPath());
 
-	// Return 404 if no location found
 	if (!location)
 		return Response::makeErrorResponse(404);
 
-	// Check if method is allowed
+	if (!location->redirect.empty()) {
+		Response redirect(301); // Use 301 for permanent redirect as configured
+		redirect.addHeader("Content-Type", "text/html");
+		redirect.addHeader("Location", location->redirect);
+		return redirect;
+	}
+
 	if (!isMethodAllowed(req.getMethod(), *location)) {
 		Response error(405);
 		error.addHeader("Content-Type", "text/html");
@@ -43,19 +48,18 @@ Response RequestHandler::handleRequest(const Request &request) {
 		return error;
 	}
 
-	// Create response based on the request method
 	Response response;
-	if (request.getMethod() == "GET") {
+	if (request.getMethod() == "GET")
 		response = handleGET(request);
-	} else if (request.getMethod() == "POST") {
+	else if (request.getMethod() == "POST")
 		response = handlePOST(request);
-	} else if (request.getMethod() == "DELETE") {
+	else if (request.getMethod() == "DELETE")
 		response = handleDELETE(request);
-	} else if (request.getMethod() == "PUT") {
+	else if (request.getMethod() == "PUT")
 		response = handlePUT(request);
-	} else {
+	else
 		response = Response::makeErrorResponse(501); // Not Implemented
-	}
+
 	// Clean up expired sessions periodically
 	static time_t lastCleanup = 0;
 	if (time(NULL) - lastCleanup > 300) { // Every 5 minutes
