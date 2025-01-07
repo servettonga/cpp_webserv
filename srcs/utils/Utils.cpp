@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/11/03 22:50:59 by sehosaf           #+#    #+#             */
-/*   Updated: 2025/01/07 22:40:31 by sehosaf          ###   ########.fr       */
+/*   Updated: 2025/01/07 23:05:33 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -44,6 +44,12 @@ std::string Utils::numToString(long value) {
 	std::ostringstream oss;
 	oss << value;
 	return oss.str();
+}
+
+std::string Utils::numToString(off_t value) {
+	std::stringstream ss;
+	ss << value;
+	return ss.str();
 }
 
 const std::string Utils::toUpper(const std::string string) {

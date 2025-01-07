@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/12/20 19:07:05 by sehosaf           #+#    #+#             */
-/*   Updated: 2025/01/07 22:51:48 by sehosaf          ###   ########.fr       */
+/*   Updated: 2025/01/07 23:00:18 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -37,6 +37,7 @@
 #include <vector>
 
 // CPP Includes
+#include <csignal>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
