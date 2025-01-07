@@ -6,26 +6,27 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/11/29 20:07:50 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/24 21:03:08 by sehosaf          ###   ########.fr       */
+/*   Updated: 2025/01/07 22:36:56 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "DirectoryHandler.hpp"
 #include "FileHandler.hpp"
 
-Response DirectoryHandler::handleDirectory(const std::string &dirPath, const LocationConfig &location, const std::string& requestPath) {
+Response DirectoryHandler::handleDirectory(const std::string &dirPath, const LocationConfig &location,
+										   const std::string &requestPath, const ServerConfig *config) {
 	if (!location.autoindex)
-		return Response::makeErrorResponse(403);
+		return Response::makeErrorResponse(403, config);
 
 	DIR *dir = opendir(dirPath.c_str());
 	if (!dir)
-		return Response::makeErrorResponse(404);
+		return Response::makeErrorResponse(404, config);
 	closedir(dir);
 
 	// Use the actual request path for the directory listing
 	std::string html = createListing(dirPath, requestPath);
 	if (html.empty())
-		return Response::makeErrorResponse(500);
+		return Response::makeErrorResponse(500, config);
 
 	Response response(200);
 	response.addHeader("Content-Type", "text/html");
@@ -66,7 +67,8 @@ std::string DirectoryHandler::createListingHeader(const std::string &urlPath) {
 		   << "    <meta charset=\"UTF-8\">\n"
 		   << "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n"
 		   << "    <title>Directory: " << displayPath << "</title>\n"
-		   << "    <link href=\"https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css\" rel=\"stylesheet\">\n"
+		   << "    <link href=\"https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css\" "
+			  "rel=\"stylesheet\">\n"
 		   << "    <style>\n"
 		   << "        :root {\n"
 		   << "            --bg-color: #ffffff;\n"
@@ -99,8 +101,7 @@ std::string DirectoryHandler::createListingHeader(const std::string &urlPath) {
 		   << "            background-color: rgba(220, 53, 69, 0.1);\n"
 		   << "        }\n"
 		   << "    </style>\n"
-		   << createDeleteScript()
-		   << "</head>\n"
+		   << createDeleteScript() << "</head>\n"
 		   << "<body>\n"
 		   << "    <nav class=\"navbar navbar-expand-lg mb-4\">\n"
 		   << "        <div class=\"container\">\n"
@@ -162,14 +163,15 @@ std::string DirectoryHandler::createDeleteScript() {
 		   "}</script>";
 }
 
-std::string DirectoryHandler::createListingBody(DIR* dir, const std::string &path, const std::string &urlPath) {
+std::string DirectoryHandler::createListingBody(DIR *dir, const std::string &path, const std::string &urlPath) {
 	std::stringstream body;
-	struct dirent* entry;
+	struct dirent	 *entry;
 
 	// Add the parent directory link
 	if (urlPath != "/" && !urlPath.empty()) {
 		std::string parentPath = urlPath.substr(0, urlPath.find_last_of('/'));
-		if (parentPath.empty()) parentPath = "/";
+		if (parentPath.empty())
+			parentPath = "/";
 		body << "<tr>\n"
 			 << "    <td><a href=\"" << parentPath << "\" class=\"text-decoration-none\">..</a></td>\n"
 			 << "    <td>-</td>\n"
@@ -189,16 +191,14 @@ std::string DirectoryHandler::createListingBody(DIR* dir, const std::string &pat
 			std::string entryUrlPath = urlPath + "/" + FileHandler::urlDecode(name);
 
 			body << "<tr>\n"
-				 << "    <td><a href=\"" << entryUrlPath
-				 << (S_ISDIR(st.st_mode) ? "/" : "")
+				 << "    <td><a href=\"" << entryUrlPath << (S_ISDIR(st.st_mode) ? "/" : "")
 				 << "\" class=\"text-decoration-none\">" << name << "</a></td>\n"
 				 << "    <td>" << formatFileSize(st) << "</td>\n"
 				 << "    <td>" << formatModTime(st) << "</td>\n"
 				 << "    <td>";
 
 			if (!S_ISDIR(st.st_mode)) {
-				body << "<span class=\"delete-btn\" onclick='deleteFile(\""
-					 << entryUrlPath << "\")'>Delete</span>";
+				body << "<span class=\"delete-btn\" onclick='deleteFile(\"" << entryUrlPath << "\")'>Delete</span>";
 			}
 
 			body << "</td>\n"
@@ -212,7 +212,8 @@ std::string DirectoryHandler::createListingBody(DIR* dir, const std::string &pat
 		 << "            </div>\n"
 		 << "        </div>\n"
 		 << "    </div>\n"
-		 << "    <script src=\"https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js\"></script>\n"
+		 << "    <script "
+			"src=\"https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js\"></script>\n"
 		 << "</body>\n"
 		 << "</html>";
 
@@ -227,7 +228,6 @@ std::string DirectoryHandler::formatFileSize(const struct stat &st) {
 
 std::string DirectoryHandler::formatModTime(const struct stat &st) {
 	char timebuf[32];
-	strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S",
-			 localtime(&st.st_mtime));
+	strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S", localtime(&st.st_mtime));
 	return std::string(timebuf);
 }

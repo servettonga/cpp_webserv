@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 13:04:01 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/26 00:01:46 by sehosaf          ###   ########.fr       */
+/*   Updated: 2025/01/07 22:52:56 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -16,6 +16,7 @@
 #include "../WebServ.hpp"
 #include "../config/ServerConfig.hpp"
 #include "../http/Response.hpp"
+#include "../utils/Logger.hpp"
 
 class Server {
 	public:

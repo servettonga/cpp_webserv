@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 20:07:58 by sehosaf           #+#    #+#             */
-/*   Updated: 2025/01/07 19:20:59 by sehosaf          ###   ########.fr       */
+/*   Updated: 2025/01/07 22:38:27 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -29,7 +29,8 @@ Response::Response(int statusCode, const std::string &serverName) :
 	setCookie("test_message", "hello");
 }
 
-Response::~Response() {}
+Response::~Response() {
+}
 
 void Response::setStatusCode(int code) {
 	if (code >= 100 && code < 600)
@@ -59,9 +60,7 @@ void Response::updateContentLength() {
 std::string Response::toString() const {
 	if (_isRawOutput)
 		return _rawOutput;
-	std::string response = "HTTP/1.1 " +
-						   Utils::numToString(_statusCode) + " " +
-						   getStatusText() + "\r\n";
+	std::string response = "HTTP/1.1 " + Utils::numToString(_statusCode) + " " + getStatusText() + "\r\n";
 
 	response += "Content-Length: " + Utils::numToString(_body.length()) + "\r\n";
 
@@ -79,38 +78,56 @@ std::string Response::toString() const {
 
 std::string Response::getStatusText() const {
 	switch (_statusCode) {
-		// 2xx Success
-		case 200: return "OK";
-		case 201: return "Created";
-		case 204: return "No Content";
+	// 2xx Success
+	case 200: return "OK";
+	case 201: return "Created";
+	case 204: return "No Content";
 
-		// 3xx Redirection
-		case 301: return "Moved Permanently";
-		case 302: return "Found";
-		case 304: return "Not Modified";
+	// 3xx Redirection
+	case 301: return "Moved Permanently";
+	case 302: return "Found";
+	case 304: return "Not Modified";
 
-		// 4xx Client Errors
-		case 400: return "Bad Request";
-		case 401: return "Unauthorized";
-		case 403: return "Forbidden";
-		case 404: return "Not Found";
-		case 405: return "Method Not Allowed";
-		case 413: return "Payload Too Large";
-		case 415: return "Unsupported Media Type";
+	// 4xx Client Errors
+	case 400: return "Bad Request";
+	case 401: return "Unauthorized";
+	case 403: return "Forbidden";
+	case 404: return "Not Found";
+	case 405: return "Method Not Allowed";
+	case 413: return "Payload Too Large";
+	case 415: return "Unsupported Media Type";
 
-		// 5xx Server Errors
-		case 500: return "Internal Server Error";
-		case 501: return "Not Implemented";
-		case 502: return "Bad Gateway";
-		case 503: return "Service Unavailable";
+	// 5xx Server Errors
+	case 500: return "Internal Server Error";
+	case 501: return "Not Implemented";
+	case 502: return "Bad Gateway";
+	case 503: return "Service Unavailable";
 
-		default: return "Unknown";
+	default: return "Unknown";
 	}
 }
 
-Response Response::makeErrorResponse(int statusCode) {
+Response Response::makeErrorResponse(int statusCode, const ServerConfig *config) {
 	Response response(statusCode);
 	response.addHeader("Content-Type", "text/html");
+
+	if (config) {
+		std::map<int, std::string>::const_iterator it = config->error_pages.find(statusCode);
+		if (it != config->error_pages.end()) {
+			std::string errorPath = config->root + it->second;
+			struct stat st;
+			if (stat(errorPath.c_str(), &st) == 0) {
+				int fd = open(errorPath.c_str(), O_RDONLY);
+				if (fd >= 0) {
+					Response response(statusCode);
+					response.addHeader("Content-Type", "text/html");
+					response.addHeader("Content-Length", Utils::numToString(st.st_size));
+					response.setFileDescriptor(fd);
+					return response;
+				}
+			}
+		}
+	}
 
 	// Map of custom error messages
 	std::map<int, std::string> errorMessages;
@@ -135,44 +152,42 @@ Response Response::makeErrorResponse(int statusCode) {
 		message = "An error occurred while processing your request.";
 	}
 
-        std::string body =
-            "<html><head><title>" + Utils::numToString(statusCode) + " " +
-            response.getStatusText() +
-            "</title>"
-            "<style>"
-            "body { font-family: Arial, sans-serif; margin: 0; padding: 20px; "
-            "background-color: " +
-            colorClass +
-            "; }"
-            ".container { text-align: center; padding: 30px; max-width: 800px; "
-            "margin: 0 auto; }"
-            "h1 { color: #333; margin: 20px 0; }"
-            ".error-code { font-size: 72px; color: #666; margin: 20px 0; }"
-            ".message { color: #666; margin: 30px 0; line-height: 1.5; }"
-            ".home-link { display: inline-block; padding: 10px 20px; "
-            "background-color: " +
-            buttonColor +
-            ";"
-            "    color: white; text-decoration: none; border-radius: 4px; "
-            "margin-top: 30px; }"
-            ".home-link:hover { opacity: 0.9; }"
-            "</style></head>"
-            "<body>\n"
-            "    <div class='container'>\n"
-            "        <div class='error-code'>" +
-            Utils::numToString(statusCode) +
-            "</div>\n"
-            "        <h1>" +
-            response.getStatusText() +
-            "</h1>\n"
-            "        <p class='message'>" +
-            message +
-            "</p>\n"
-            "    </div>\n"
-            "</body></html>";
+	std::string body = "<html><head><title>" + Utils::numToString(statusCode) + " " + response.getStatusText() +
+		"</title>"
+		"<style>"
+		"body { font-family: Arial, sans-serif; margin: 0; padding: 20px; "
+		"background-color: " +
+		colorClass +
+		"; }"
+		".container { text-align: center; padding: 30px; max-width: 800px; "
+		"margin: 0 auto; }"
+		"h1 { color: #333; margin: 20px 0; }"
+		".error-code { font-size: 72px; color: #666; margin: 20px 0; }"
+		".message { color: #666; margin: 30px 0; line-height: 1.5; }"
+		".home-link { display: inline-block; padding: 10px 20px; "
+		"background-color: " +
+		buttonColor +
+		";"
+		"    color: white; text-decoration: none; border-radius: 4px; "
+		"margin-top: 30px; }"
+		".home-link:hover { opacity: 0.9; }"
+		"</style></head>"
+		"<body>\n"
+		"    <div class='container'>\n"
+		"        <div class='error-code'>" +
+		Utils::numToString(statusCode) +
+		"</div>\n"
+		"        <h1>" +
+		response.getStatusText() +
+		"</h1>\n"
+		"        <p class='message'>" +
+		message +
+		"</p>\n"
+		"    </div>\n"
+		"</body></html>";
 
-        response.setBody(body);
-        return response;
+	response.setBody(body);
+	return response;
 }
 
 void Response::setFileDescriptor(int fd) {
@@ -190,7 +205,7 @@ bool Response::writeNextChunk(int clientFd) {
 		// Send headers first if not sent
 		if (!_isHeadersSent) {
 			std::string headers = getHeadersString();
-			ssize_t headersSent = send(clientFd, headers.c_str(), headers.length(), MSG_NOSIGNAL);
+			ssize_t		headersSent = send(clientFd, headers.c_str(), headers.length(), MSG_NOSIGNAL);
 			if (headersSent < 0) {
 				if (errno == EAGAIN || errno == EWOULDBLOCK)
 					return true;
@@ -200,7 +215,7 @@ bool Response::writeNextChunk(int clientFd) {
 		}
 
 		// Send file content
-		char buffer[RESPONSE_SIZE];
+		char	buffer[RESPONSE_SIZE];
 		ssize_t bytesRead = read(_fileDescriptor, buffer, sizeof(buffer));
 
 		if (bytesRead > 0) {
@@ -212,12 +227,12 @@ bool Response::writeNextChunk(int clientFd) {
 			}
 			_bytesWritten += bytesWritten;
 			return true;
-		} else if (bytesRead == 0) {	// EOF reached
+		} else if (bytesRead == 0) { // EOF reached
 			closeFileDescriptor();
-			_isStreaming = false;	// Mark streaming as complete
+			_isStreaming = false; // Mark streaming as complete
 			return false;
 		}
-	} catch (const std::exception& e) {
+	} catch (const std::exception &e) {
 		closeFileDescriptor();
 		_isStreaming = false;
 		return false;
@@ -232,11 +247,13 @@ void Response::closeFileDescriptor() {
 	}
 }
 
-void Response::setCookie(const std::string& name, const std::string& value,
-						 const std::string& expires, const std::string& path) {
+void Response::setCookie(const std::string &name, const std::string &value, const std::string &expires,
+						 const std::string &path) {
 	std::string cookie = name + "=" + value;
-	if (!expires.empty()) cookie += "; Expires=" + expires;
-	if (!path.empty()) cookie += "; Path=" + path;
+	if (!expires.empty())
+		cookie += "; Expires=" + expires;
+	if (!path.empty())
+		cookie += "; Path=" + path;
 	_cookies[name] = cookie;
 }
 
@@ -255,22 +272,25 @@ std::string Response::getHeadersString() const {
 	return headers;
 }
 
-void Response::clearSession() { clearCookie("session_id"); }
+void Response::clearSession() {
+	clearCookie("session_id");
+}
 
-void Response::clearCookie(const std::string& name) {
-	if (name.empty()) return;
+void Response::clearCookie(const std::string &name) {
+	if (name.empty())
+		return;
 	setCookie(name, "", "Thu, 01 Jan 1970 00:00:00 GMT", "/");
 }
 
-void Response::setSessionId(const std::string& sessionId) {
+void Response::setSessionId(const std::string &sessionId) {
 	if (!sessionId.empty())
 		setCookie("session_id", sessionId, "", "/; Max-Age=3600");
 }
 
-Response Response::makeRedirect(int code, const std::string& location) {
-    Response response(code);
-    response.addHeader("Location", location);
-    response.addHeader("Content-Type", "text/html");
-    response.setBody("<html><body>Redirecting to " + location + "</body></html>");
-    return response;
+Response Response::makeRedirect(int code, const std::string &location) {
+	Response response(code);
+	response.addHeader("Location", location);
+	response.addHeader("Content-Type", "text/html");
+	response.setBody("<html><body>Redirecting to " + location + "</body></html>");
+	return response;
 }

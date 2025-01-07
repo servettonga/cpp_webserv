@@ -6,23 +6,25 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 13:04:01 by sehosaf           #+#    #+#             */
-/*   Updated: 2025/01/07 19:25:27 by sehosaf          ###   ########.fr       */
+/*   Updated: 2025/01/07 22:35:35 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "ConfigParser.hpp"
 #include "../utils/Utils.hpp"
-#include <cstdlib>
-#include <sys/stat.h>
-#include <cstring>
-#include <sstream>
 #include <algorithm>
-#include <iostream>
+#include <cstdlib>
+#include <cstring>
 #include <fstream>
+#include <iostream>
+#include <sstream>
+#include <sys/stat.h>
 
-ConfigParser::ConfigParser(const std::string &configPath): _configPath(configPath) , _currentLine(0) {}
+ConfigParser::ConfigParser(const std::string &configPath) : _configPath(configPath), _currentLine(0) {
+}
 
-ConfigParser::~ConfigParser() {}
+ConfigParser::~ConfigParser() {
+}
 
 std::vector<ServerConfig> ConfigParser::parse() {
 	std::vector<ServerConfig> configs;
@@ -32,7 +34,8 @@ std::vector<ServerConfig> ConfigParser::parse() {
 
 	while (hasMoreLines()) {
 		skipWhitespace();
-		if (!hasMoreLines()) break;
+		if (!hasMoreLines())
+			break;
 
 		std::string line = getCurrentLine();
 
@@ -97,7 +100,8 @@ void ConfigParser::parseServer(ServerConfig &server) {
 
 	while (hasMoreLines()) {
 		skipWhitespace();
-		if (!hasMoreLines()) break;
+		if (!hasMoreLines())
+			break;
 
 		line = getCurrentLine();
 		if (line == "}") {
@@ -130,7 +134,8 @@ bool ConfigParser::isBlockEnd(const std::string &line) const {
 }
 
 std::string ConfigParser::trimString(const std::string &str) const {
-	if (str.empty()) return str;
+	if (str.empty())
+		return str;
 
 	size_t start = 0;
 	size_t end = str.length();
@@ -145,7 +150,7 @@ void ConfigParser::parseLocation(LocationConfig &location) {
 	std::string line = getCurrentLine();
 
 	std::istringstream iss(line);
-	std::string token;
+	std::string		   token;
 	iss >> token; // Skip "location"
 	iss >> token; // Get path
 	location.path = token;
@@ -171,9 +176,9 @@ void ConfigParser::parseLocation(LocationConfig &location) {
 			break;
 		}
 		std::pair<std::string, std::string> directive = splitDirective(line);
-		std::string value = directive.second;
-		if (!value.empty() && value[value.length()-1] == ';')
-			value = value.substr(0, value.length()-1);
+		std::string							value = directive.second;
+		if (!value.empty() && value[value.length() - 1] == ';')
+			value = value.substr(0, value.length() - 1);
 		if (directive.first == "root")
 			location.root = value;
 		else if (directive.first == "index")
@@ -187,17 +192,17 @@ void ConfigParser::parseLocation(LocationConfig &location) {
 			parseAllowedMethods(value, location);
 		} else if (directive.first == "cgi_pass") {
 			location.cgi_path = value;
-        } else if (directive.first == "return") {
-            std::istringstream iss(value);
-            std::string code, target;
-            iss >> code >> target;
-            if (code == "301" || code == "302") {
-                if (!target.empty() && target[target.length()-1] == ';')
-                    target = target.substr(0, target.length()-1);
-                location.redirect = target;
-            }
-        }
-        ++_currentLine;
+		} else if (directive.first == "return") {
+			std::istringstream iss(value);
+			std::string		   code, target;
+			iss >> code >> target;
+			if (code == "301" || code == "302") {
+				if (!target.empty() && target[target.length() - 1] == ';')
+					target = target.substr(0, target.length() - 1);
+				location.redirect = target;
+			}
+		}
+		++_currentLine;
 	}
 }
 
@@ -214,13 +219,13 @@ void ConfigParser::parseCGI(ServerConfig &server) {
 		}
 
 		std::pair<std::string, std::string> directive = splitDirective(line);
-		std::string ext = directive.first;
-		std::string handler = directive.second;
+		std::string							ext = directive.first;
+		std::string							handler = directive.second;
 
 		if (ext[0] != '.')
 			ext = "." + ext;
-		if (!handler.empty() && handler[handler.length()-1] == ';')
-			handler = handler.substr(0, handler.length()-1);
+		if (!handler.empty() && handler[handler.length() - 1] == ';')
+			handler = handler.substr(0, handler.length() - 1);
 		server.cgi_handlers[ext] = handler;
 		++_currentLine;
 	}
@@ -253,7 +258,7 @@ void ConfigParser::parseDirective(const std::string &line, ServerConfig &server)
 
 std::pair<std::string, std::string> ConfigParser::splitDirective(const std::string &line) const {
 	std::string key, value;
-	size_t pos = line.find_first_of(" \t");
+	size_t		pos = line.find_first_of(" \t");
 
 	if (pos != std::string::npos) {
 		key = trimString(line.substr(0, pos));
@@ -266,8 +271,7 @@ std::pair<std::string, std::string> ConfigParser::splitDirective(const std::stri
 }
 
 void ConfigParser::skipWhitespace() {
-	while (hasMoreLines() && trimString(getCurrentLine()).empty())
-		++_currentLine;
+	while (hasMoreLines() && trimString(getCurrentLine()).empty()) ++_currentLine;
 }
 
 bool ConfigParser::hasMoreLines() const {
@@ -285,30 +289,29 @@ void ConfigParser::addError(const std::string &error) {
 }
 
 bool ConfigParser::validatePaths(const ServerConfig &config) const {
-	struct stat st;
+	struct stat				 st;
 	std::vector<std::string> pathsToCheck;
 
 	// Add server to the root path
 	if (!config.root.empty())
 		pathsToCheck.push_back(config.root);
 	// Add location paths
-	for (std::vector<LocationConfig>::const_iterator it = config.locations.begin();
-		 it != config.locations.end(); ++it) {
+	for (std::vector<LocationConfig>::const_iterator it = config.locations.begin(); it != config.locations.end();
+		 ++it) {
 		if (!it->root.empty()) {
 			std::string locPath = it->root;
-			if (!locPath.empty() && locPath[locPath.length()-1] == ';')
-				locPath = locPath.substr(0, locPath.length()-1);
+			if (!locPath.empty() && locPath[locPath.length() - 1] == ';')
+				locPath = locPath.substr(0, locPath.length() - 1);
 			if (locPath.substr(0, 2) == "./")
 				locPath = locPath.substr(2);
 			pathsToCheck.push_back(locPath);
 		}
 	}
 	// Validate each path
-	for (std::vector<std::string>::const_iterator it = pathsToCheck.begin();
-		 it != pathsToCheck.end(); ++it) {
+	for (std::vector<std::string>::const_iterator it = pathsToCheck.begin(); it != pathsToCheck.end(); ++it) {
 		if (stat(it->c_str(), &st) != 0) {
 			std::string cmd = "mkdir -p \"" + *it + "\"";
-			int result = system(cmd.c_str());
+			int			result = system(cmd.c_str());
 			if (result != 0) {
 				std::cerr << "Failed to create directory: " << *it << std::endl;
 				return false;
@@ -326,19 +329,18 @@ bool ConfigParser::validatePorts(const ServerConfig &config) const {
 bool ConfigParser::validateCGI(const ServerConfig &config) const {
 	for (std::map<std::string, std::string>::const_iterator it = config.cgi_handlers.begin();
 		 it != config.cgi_handlers.end(); ++it) {
-
 		std::string handler = it->second;
-		if (!handler.empty() && handler[handler.length()-1] == ';')
-			handler = handler.substr(0, handler.length()-1);
+		if (!handler.empty() && handler[handler.length() - 1] == ';')
+			handler = handler.substr(0, handler.length() - 1);
 
 		// If using env
 		if (handler.find("/usr/bin/env") == 0) {
 			std::istringstream iss(handler);
-			std::string env, cmd;
+			std::string		   env, cmd;
 			iss >> env >> cmd;
 
-			if (!cmd.empty() && cmd[cmd.length()-1] == ';')
-				cmd = cmd.substr(0, cmd.length()-1);
+			if (!cmd.empty() && cmd[cmd.length() - 1] == ';')
+				cmd = cmd.substr(0, cmd.length() - 1);
 
 			// Check common paths
 			std::vector<std::string> paths;
@@ -349,7 +351,7 @@ bool ConfigParser::validateCGI(const ServerConfig &config) const {
 			bool found = false;
 			for (size_t i = 0; i < paths.size(); ++i) {
 				struct stat st;
-				if (stat(paths[i].c_str(), &st) == 0 && (st.st_mode  &S_IXUSR)) {
+				if (stat(paths[i].c_str(), &st) == 0 && (st.st_mode & S_IXUSR)) {
 					found = true;
 					break;
 				}
@@ -359,7 +361,7 @@ bool ConfigParser::validateCGI(const ServerConfig &config) const {
 				return false;
 		} else {
 			struct stat st;
-			if (stat(handler.c_str(), &st) != 0 || !(st.st_mode  &S_IXUSR))
+			if (stat(handler.c_str(), &st) != 0 || !(st.st_mode & S_IXUSR))
 				return false;
 		}
 	}
@@ -369,8 +371,8 @@ bool ConfigParser::validateCGI(const ServerConfig &config) const {
 bool ConfigParser::validateLocations(const ServerConfig &config) const {
 	std::vector<std::string> paths;
 
-	for (std::vector<LocationConfig>::const_iterator it = config.locations.begin();
-		 it != config.locations.end(); ++it) {
+	for (std::vector<LocationConfig>::const_iterator it = config.locations.begin(); it != config.locations.end();
+		 ++it) {
 		if (std::find(paths.begin(), paths.end(), it->path) != paths.end())
 			return false;
 		paths.push_back(it->path);
@@ -395,18 +397,17 @@ void ConfigParser::reload() {
 
 void ConfigParser::parseServerNames(const std::string &value, ServerConfig &server) {
 	std::istringstream iss(value);
-	std::string name;
-	while (iss >> name)
-		server.server_names.push_back(name);
+	std::string		   name;
+	while (iss >> name) server.server_names.push_back(name);
 }
 
 void ConfigParser::parseErrorPage(const std::string &value, ServerConfig &server) {
 	std::istringstream iss(value);
-	std::string code_str, path;
+	std::string		   code_str, path;
 
 	if (iss >> code_str >> path) {
 		int code = atoi(code_str.c_str());
-		if (code >= 400 && code < 600)  // Valid HTTP error codes
+		if (code >= 400 && code < 600) // Valid HTTP error codes
 			server.error_pages[code] = path;
 		else
 			addError("Invalid error code in error_page directive: " + code_str);
@@ -421,13 +422,12 @@ void ConfigParser::parseAllowedMethods(const std::string &value, LocationConfig 
 		methodStr = methodStr.substr(0, methodStr.length() - 1);
 
 	std::istringstream iss(methodStr);
-	std::string method;
+	std::string		   method;
 
 	while (iss >> method) {
 		if (method[method.length() - 1] == ';')
 			method = method.substr(0, method.length() - 1);
-		if (method == "GET" || method == "POST" || method == "DELETE" ||
-			method == "PUT" || method == "HEAD") {
+		if (method == "GET" || method == "POST" || method == "DELETE" || method == "PUT" || method == "HEAD") {
 			location.methods.push_back(method);
 		}
 	}
@@ -439,15 +439,13 @@ void ConfigParser::parseAllowedMethods(const std::string &value, LocationConfig 
 unsigned long ConfigParser::parseSize(const std::string &value) {
 	std::string number;
 	std::string unit;
-	size_t i = 0;
+	size_t		i = 0;
 
 	// Parse number part
-	while (i < value.length() && (isdigit(value[i]) || value[i] == '.'))
-		number += value[i++];
+	while (i < value.length() && (isdigit(value[i]) || value[i] == '.')) number += value[i++];
 
 	// Parse unit part
-	while (i < value.length() && isalpha(value[i]))
-		unit += tolower(value[i++]);
+	while (i < value.length() && isalpha(value[i])) unit += tolower(value[i++]);
 
 	double size = atof(number.c_str());
 
@@ -474,14 +472,11 @@ bool ConfigParser::validate() {
 
 		// Check for duplicate ports
 		std::map<int, std::string> usedPorts;
-		for (std::vector<ServerConfig>::const_iterator it = configs.begin();
-			 it != configs.end(); ++it) {
-			std::string serverName = it->server_names.empty() ?
-									 it->host : it->server_names[0];
+		for (std::vector<ServerConfig>::const_iterator it = configs.begin(); it != configs.end(); ++it) {
+			std::string serverName = it->server_names.empty() ? it->host : it->server_names[0];
 
 			if (usedPorts.find(it->port) != usedPorts.end()) {
-				addError("Duplicate port " + Utils::numToString(it->port) +
-						 " used by servers " + usedPorts[it->port] +
+				addError("Duplicate port " + Utils::numToString(it->port) + " used by servers " + usedPorts[it->port] +
 						 " and " + serverName);
 				isValid = false;
 			}
@@ -489,11 +484,9 @@ bool ConfigParser::validate() {
 		}
 
 		// Validate each config
-		for (std::vector<ServerConfig>::const_iterator it = configs.begin();
-			 it != configs.end(); ++it) {
+		for (std::vector<ServerConfig>::const_iterator it = configs.begin(); it != configs.end(); ++it) {
 			if (!validatePaths(*it)) {
-				addError("Invalid paths in server " +
-						 (it->server_names.empty() ? it->host : it->server_names[0]));
+				addError("Invalid paths in server " + (it->server_names.empty() ? it->host : it->server_names[0]));
 				isValid = false;
 			}
 			if (!validatePorts(*it)) {

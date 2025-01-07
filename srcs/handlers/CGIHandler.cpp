@@ -6,20 +6,20 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/11/02 19:53:07 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/25 19:51:00 by sehosaf          ###   ########.fr       */
+/*   Updated: 2025/01/07 22:36:45 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "CGIHandler.hpp"
-#include <sstream>
-#include <fcntl.h>
 #include <algorithm>
+#include <fcntl.h>
+#include <sstream>
 #include <sys/poll.h>
 
 Logger &CGIHandler::_logger = Logger::getInstance();
 
 CGIHandler::CGIHandler() {
-	char* cwd = getcwd(NULL, 0);
+	char *cwd = getcwd(NULL, 0);
 	if (cwd) {
 		_cwd = cwd;
 		free(cwd);
@@ -31,15 +31,13 @@ CGIHandler::~CGIHandler() {
 	_envMap.clear();
 }
 
-Response CGIHandler::executeCGI(const Request& request,
-								const std::string& cgiPath,
-								const std::string& scriptPath) {
+Response CGIHandler::executeCGI(const Request &request, const std::string &cgiPath, const std::string &scriptPath) {
 	_logger.info("=== Starting CGI Execution ===");
 	_logger.info("CGI Path: " + cgiPath);
 	_logger.info("Script Path: " + scriptPath);
 	_logger.info("Request Body Size: " + Utils::numToString(request.getBody().length()));
 	setupEnvironment(request, scriptPath);
-	char** env = createEnvArray();
+	char **env = createEnvArray();
 	if (!env)
 		return createErrorResponse(500, "Failed to setup environment");
 
@@ -55,7 +53,7 @@ Response CGIHandler::executeCGI(const Request& request,
 
 	// Temp file to store request body
 	char tempPath[] = "/tmp/webserv_cgi_XXXXXX";
-	int tempFd = mkstemp(tempPath);
+	int	 tempFd = mkstemp(tempPath);
 	if (tempFd < 0) {
 		cleanup(env);
 		close(output_pipe[0]);
@@ -63,12 +61,12 @@ Response CGIHandler::executeCGI(const Request& request,
 		return createErrorResponse(500, "Failed to create temp file");
 	}
 
-	const std::string& body = request.getBody();
-	const size_t CHUNK_SIZE = 8192;
-	size_t totalWritten = 0;
+	const std::string &body = request.getBody();
+	const size_t	   CHUNK_SIZE = 8192;
+	size_t			   totalWritten = 0;
 
 	while (totalWritten < body.length()) {
-		size_t toWrite = std::min(CHUNK_SIZE, body.length() - totalWritten);
+		size_t	toWrite = std::min(CHUNK_SIZE, body.length() - totalWritten);
 		ssize_t written = write(tempFd, body.c_str() + totalWritten, toWrite);
 		if (written < 0) {
 			cleanup(env);
@@ -81,7 +79,7 @@ Response CGIHandler::executeCGI(const Request& request,
 		totalWritten += written;
 	}
 
-	const_cast<Request&>(request).clearBody();
+	const_cast<Request &>(request).clearBody();
 	lseek(tempFd, 0, SEEK_SET);
 
 	_logger.info("Executing CGI: " + cgiPath);
@@ -113,11 +111,8 @@ Response CGIHandler::executeCGI(const Request& request,
 		}
 		close(tempFd);
 		close(output_pipe[1]);
-		execve(cgiPath.c_str(), (char*[]){
-				const_cast<char*>(cgiPath.c_str()),
-				const_cast<char*>(scriptPath.c_str()),
-				NULL
-		}, env);
+		execve(cgiPath.c_str(),
+			   (char *[]){const_cast<char *>(cgiPath.c_str()), const_cast<char *>(scriptPath.c_str()), NULL}, env);
 		_logger.error("execve failed: " + std::string(strerror(errno)));
 		_exit(1);
 	}
@@ -136,19 +131,19 @@ Response CGIHandler::executeCGI(const Request& request,
 
 Response CGIHandler::handleCGIOutput(int output_fd, pid_t pid) {
 	char tempPath[] = "/tmp/webserv_cgi_out_XXXXXX";
-	int raw_fd = mkstemp(tempPath);
+	int	 raw_fd = mkstemp(tempPath);
 	if (raw_fd < 0) {
 		kill(pid, SIGTERM);
 		return createErrorResponse(500, "Failed to create temp file");
 	}
 	unlink(tempPath);
 
-	bool process_done = false;
+	bool   process_done = false;
 	time_t start_time = time(NULL);
 	size_t raw_bytes = 0;
 
 	while (!process_done) {
-		int status;
+		int	  status;
 		pid_t result = waitpid(pid, &status, WNOHANG);
 		if (result == pid) {
 			process_done = true;
@@ -157,7 +152,7 @@ Response CGIHandler::handleCGIOutput(int output_fd, pid_t pid) {
 				return createErrorResponse(500, "CGI process failed");
 			}
 		}
-		char buffer[CGI_BUFSIZE];
+		char	buffer[CGI_BUFSIZE];
 		ssize_t bytes = read(output_fd, buffer, sizeof(buffer));
 		if (bytes > 0) {
 			if (write(raw_fd, buffer, bytes) != bytes) {
@@ -184,10 +179,10 @@ Response CGIHandler::handleCGIOutput(int output_fd, pid_t pid) {
 
 Response CGIHandler::parseCGIOutput(int raw_fd, size_t raw_bytes) {
 	lseek(raw_fd, 0, SEEK_SET);
-	char header_buf[8192] = {0};
-	ssize_t header_bytes = 0;
-	size_t header_size = 0;
-	bool found_header_end = false;
+	char	 header_buf[8192] = {0};
+	ssize_t	 header_bytes = 0;
+	size_t	 header_size = 0;
+	bool	 found_header_end = false;
 	Response response(200);
 
 	while ((header_bytes = read(raw_fd, header_buf, sizeof(header_buf))) > 0) {
@@ -206,11 +201,12 @@ Response CGIHandler::parseCGIOutput(int raw_fd, size_t raw_bytes) {
 		}
 		if (found_header_end) {
 			std::istringstream header_stream(header_chunk.substr(0, pos));
-			std::string line;
+			std::string		   line;
 			while (std::getline(header_stream, line)) {
-				if (line.empty()) continue;
-				if (!line.empty() && line[line.length()-1] == '\r')
-					line = line.substr(0, line.length()-1);
+				if (line.empty())
+					continue;
+				if (!line.empty() && line[line.length() - 1] == '\r')
+					line = line.substr(0, line.length() - 1);
 				if (line.find("Status:") == 0) {
 					size_t status_pos = line.find_first_of("0123456789");
 					if (status_pos != std::string::npos) {
@@ -224,8 +220,7 @@ Response CGIHandler::parseCGIOutput(int raw_fd, size_t raw_bytes) {
 				if (colon_pos != std::string::npos) {
 					std::string name = line.substr(0, colon_pos);
 					std::string value = line.substr(colon_pos + 1);
-					while (!value.empty() && (value[0] == ' ' || value[0] == '\t'))
-						value = value.substr(1);
+					while (!value.empty() && (value[0] == ' ' || value[0] == '\t')) value = value.substr(1);
 					response.addHeader(name, value);
 				}
 			}
@@ -245,8 +240,7 @@ Response CGIHandler::parseCGIOutput(int raw_fd, size_t raw_bytes) {
 }
 
 void CGIHandler::cleanup(char **env) {
-	for (int i = 0; env[i] != NULL; i++)
-		delete[] env[i];
+	for (int i = 0; env[i] != NULL; i++) delete[] env[i];
 	delete[] env;
 }
 
@@ -282,27 +276,26 @@ void CGIHandler::setupEnvironment(const Request &request, const std::string &scr
 	_envMap["REDIRECT_STATUS"] = "200";
 }
 
-char** CGIHandler::createEnvArray() {
-    try {
-        size_t envSize = _envMap.size();
-        char** env = new char*[envSize + 1];
-        size_t i = 0;
+char **CGIHandler::createEnvArray() {
+	try {
+		size_t envSize = _envMap.size();
+		char **env = new char *[envSize + 1];
+		size_t i = 0;
 
-        for (std::map<std::string, std::string>::const_iterator it = _envMap.begin();
-             it != _envMap.end(); ++it, ++i) {
-            std::string envStr = it->first + "=" + it->second;
-            env[i] = new char[envStr.length() + 1];
-            std::strcpy(env[i], envStr.c_str());
-        }
-        env[envSize] = NULL;
-        return env;
-    } catch (const std::exception& e) {
-        _logger.error("Failed to create environment array: " + std::string(e.what()));
-        return NULL;
-    }
+		for (std::map<std::string, std::string>::const_iterator it = _envMap.begin(); it != _envMap.end(); ++it, ++i) {
+			std::string envStr = it->first + "=" + it->second;
+			env[i] = new char[envStr.length() + 1];
+			std::strcpy(env[i], envStr.c_str());
+		}
+		env[envSize] = NULL;
+		return env;
+	} catch (const std::exception &e) {
+		_logger.error("Failed to create environment array: " + std::string(e.what()));
+		return NULL;
+	}
 }
 
-Response CGIHandler::createErrorResponse(int code, const std::string& message) {
+Response CGIHandler::createErrorResponse(int code, const std::string &message) {
 	Response response(code);
 	response.addHeader("Content-Type", "text/html");
 	response.setBody("<html><body><h1>" + message + "</h1></body></html>");

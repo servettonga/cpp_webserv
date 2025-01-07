@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/11/03 19:47:52 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/25 23:46:38 by sehosaf          ###   ########.fr       */
+/*   Updated: 2025/01/07 22:52:01 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -14,6 +14,13 @@
 #define LOGGER_HPP
 
 #include "../WebServ.hpp"
+
+// Colors
+#define WHITE "\033[37m"
+#define RED "\033[31m"
+#define GREEN "\033[32m"
+#define YELLOW "\033[33m"
+#define RESET "\033[0m"
 
 enum LogLevel {
 	INFO,

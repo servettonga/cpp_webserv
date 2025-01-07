@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/31 23:07:40 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/25 23:04:37 by sehosaf          ###   ########.fr       */
+/*   Updated: 2025/01/07 22:37:57 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -53,13 +53,12 @@ bool Request::parse(const std::string &rawRequest) {
 	if (headerEnd == std::string::npos)
 		return false;
 
-	if (!parseHeaders(rawRequest.substr(firstLineEnd + 2,
-										headerEnd - (firstLineEnd + 2))))
+	if (!parseHeaders(rawRequest.substr(firstLineEnd + 2, headerEnd - (firstLineEnd + 2))))
 		return false;
 
 	// Check transfer encoding first
 	_isChunked = (getHeader("Transfer-Encoding") == "chunked");
-	size_t bodyStart = headerEnd + 4;  // Start of body after headers
+	size_t bodyStart = headerEnd + 4; // Start of body after headers
 
 	if (_isChunked) {
 		try {
@@ -68,7 +67,7 @@ bool Request::parse(const std::string &rawRequest) {
 			_body = unchunkData(chunkedBody);
 			_headers["Content-Length"] = Utils::numToString(_body.length());
 			_headers.erase("Transfer-Encoding");
-		} catch (const std::exception& e) {
+		} catch (const std::exception &e) {
 			return false;
 		}
 	} else {
@@ -94,7 +93,7 @@ bool Request::parseRequestLine(const std::string &line) {
 
 	// Extract path and query string
 	std::string fullPath = line.substr(first + 1, last - first - 1);
-	size_t queryPos = fullPath.find('?');
+	size_t		queryPos = fullPath.find('?');
 	if (queryPos != std::string::npos) {
 		_path = fullPath.substr(0, queryPos);
 		_queryString = fullPath.substr(queryPos + 1);
@@ -113,8 +112,8 @@ bool Request::parseHeaders(const std::string &headerSection) {
 		return false;
 
 	std::istringstream stream(headerSection);
-	std::string line;
-	bool hasValidHeaders = false;
+	std::string		   line;
+	bool			   hasValidHeaders = false;
 
 	while (std::getline(stream, line)) {
 		// Skip empty lines
@@ -152,13 +151,17 @@ std::string Request::trimWhitespace(const std::string &str) {
 }
 
 // Getters
-const std::string &Request::getMethod() const { return _method; }
+const std::string &Request::getMethod() const {
+	return _method;
+}
 
-const std::string &Request::getPath() const { return _path; }
+const std::string &Request::getPath() const {
+	return _path;
+}
 
 const std::string &Request::getBody() const {
 	if (!_tempFilePath.empty())
-		const_cast<Request*>(this)->loadBodyFromTempFile();
+		const_cast<Request *>(this)->loadBodyFromTempFile();
 	return _body;
 }
 
@@ -166,7 +169,7 @@ void Request::loadBodyFromTempFile() {
 	if (!_tempFilePath.empty()) {
 		int fd = open(_tempFilePath.c_str(), O_RDONLY);
 		if (fd != -1) {
-			char buffer[8192];
+			char	buffer[8192];
 			ssize_t bytes;
 			while ((bytes = read(fd, buffer, sizeof(buffer))) > 0) {
 				_body.append(buffer, bytes);
@@ -187,15 +190,19 @@ std::string Request::getHeader(const std::string &name) const {
 	return it != _headers.end() ? it->second : "";
 }
 
-void Request::setConfig(const void *config) { _config = config; }
+void Request::setConfig(const void *config) {
+	_config = config;
+}
 
-bool Request::isChunked() const { return _isChunked; }
+bool Request::isChunked() const {
+	return _isChunked;
+}
 
 std::string Request::unchunkData(const std::string &chunkedData) {
 	// Pre-allocate result buffer to avoid reallocations
 	std::string result;
-	result.reserve(chunkedData.length());  // Worst case size
-	size_t pos = 0;
+	result.reserve(chunkedData.length()); // Worst case size
+	size_t		 pos = 0;
 	const size_t len = chunkedData.length();
 
 	while (pos < len) {
@@ -215,31 +222,34 @@ std::string Request::unchunkData(const std::string &chunkedData) {
 			else if (c >= 'A' && c <= 'F')
 				chunkSize = (chunkSize << 4) | (c - 'A' + 10);
 			else
-				break;  // Handle optional chunk extensions
+				break; // Handle optional chunk extensions
 		}
 		if (chunkSize == 0) // End of chunks
 			break;
 
-		size_t dataStart = endOfSize + 2;  // Skip CRLF after size
+		size_t dataStart = endOfSize + 2;	 // Skip CRLF after size
 		if (dataStart + chunkSize + 2 > len) // +2 for trailing CRLF
 			throw std::runtime_error("Incomplete chunk data");
 
 		result.append(chunkedData.data() + dataStart, chunkSize);
 
 		// Move to next chunk
-		pos = dataStart + chunkSize + 2;  // Skip data and CRLF
+		pos = dataStart + chunkSize + 2; // Skip data and CRLF
 	}
 	return result;
 }
 
-void Request::setTempFilePath(const std::string &path) { _tempFilePath = path; }
+void Request::setTempFilePath(const std::string &path) {
+	_tempFilePath = path;
+}
 
 void Request::parseCookies() {
 	std::string cookieHeader = getHeader("Cookie");
-	if (cookieHeader.empty()) return;
+	if (cookieHeader.empty())
+		return;
 
 	std::istringstream cookieStream(cookieHeader);
-	std::string cookie;
+	std::string		   cookie;
 
 	while (std::getline(cookieStream, cookie, ';')) {
 		// Trim leading/trailing whitespace
@@ -254,6 +264,10 @@ void Request::parseCookies() {
 	}
 }
 
-std::map<std::string, std::string> Request::getCookies() const { return _cookies; }
+std::map<std::string, std::string> Request::getCookies() const {
+	return _cookies;
+}
 
-void Request::clearBody() { std::string().swap(_body); }
+void Request::clearBody() {
+	std::string().swap(_body);
+}

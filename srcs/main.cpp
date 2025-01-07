@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/10/26 12:25:04 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/10 13:33:25 by sehosaf          ###   ########.fr       */
+/*   Updated: 2025/01/07 22:40:43 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -14,9 +14,8 @@
 #include "config/ConfigParser.hpp"
 #include "server/ServerGroup.hpp"
 
-void displayErrors(const std::vector<std::string>& errors) {
-	for (std::vector<std::string>::const_iterator it = errors.begin();
-		 it != errors.end(); ++it) {
+void displayErrors(const std::vector<std::string> &errors) {
+	for (std::vector<std::string>::const_iterator it = errors.begin(); it != errors.end(); ++it) {
 		std::cerr << "Config Error: " << *it << "\n";
 	}
 }
@@ -48,8 +47,7 @@ int main(const int argc, char *argv[]) {
 
 		std::cout << "Initializing server group...\n";
 		ServerGroup serverGroup(configFile);
-		for (std::vector<ServerConfig>::iterator it = configs.begin();
-			 it != configs.end(); ++it) {
+		for (std::vector<ServerConfig>::iterator it = configs.begin(); it != configs.end(); ++it) {
 			serverGroup.addServer(*it);
 		}
 
@@ -59,7 +57,7 @@ int main(const int argc, char *argv[]) {
 		std::cout << "Starting server group...\n";
 		serverGroup.start();
 
-	} catch (const std::exception& e) {
+	} catch (const std::exception &e) {
 		std::cerr << RED << "Fatal error: " << e.what() << std::endl << RESET;
 		return 1;
 	}

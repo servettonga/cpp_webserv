@@ -6,17 +6,18 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/11/03 22:50:59 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/11/24 10:10:40 by sehosaf          ###   ########.fr       */
+/*   Updated: 2025/01/07 22:40:31 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "Utils.hpp"
-#include <sstream>
-#include <cstring>
 #include <algorithm>
+#include <cstring>
+#include <sstream>
 
-std::string Utils::trim(const std::string& str) {
-	if (str.empty()) return str;
+std::string Utils::trim(const std::string &str) {
+	if (str.empty())
+		return str;
 
 	size_t start = 0;
 	size_t end = str.length();
@@ -44,7 +45,6 @@ std::string Utils::numToString(long value) {
 	oss << value;
 	return oss.str();
 }
-
 
 const std::string Utils::toUpper(const std::string string) {
 	std::string upperString = string;

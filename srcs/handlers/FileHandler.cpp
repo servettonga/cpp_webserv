@@ -6,7 +6,7 @@
 /*   By: sehosaf <sehosaf@student.42warsaw.pl>      +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/11/29 20:09:27 by sehosaf           #+#    #+#             */
-/*   Updated: 2024/12/12 23:27:47 by sehosaf          ###   ########.fr       */
+/*   Updated: 2025/01/07 22:37:27 by sehosaf          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -43,7 +43,7 @@ Response FileHandler::handleFileUpload(const Request &request, const LocationCon
 	std::string uploadPath;
 	if (!loc.root.empty()) {
 		uploadPath = loc.root;
-		if (uploadPath[uploadPath.length()-1] != '/')
+		if (uploadPath[uploadPath.length() - 1] != '/')
 			uploadPath += '/';
 		if (!loc.path.empty() && loc.path != "/") {
 			std::string pathComponent = loc.path;
@@ -87,24 +87,20 @@ Response FileHandler::handleFileUpload(const Request &request, const LocationCon
 
 std::string FileHandler::extractBoundary(const std::string &contentType) {
 	size_t boundaryPos = contentType.find("boundary=");
-	return (boundaryPos != std::string::npos) ?
-		   "--" + contentType.substr(boundaryPos + 9) : "";
+	return (boundaryPos != std::string::npos) ? "--" + contentType.substr(boundaryPos + 9) : "";
 }
 
 FileHandler::FileData FileHandler::parseMultipartData(const std::string &body, const std::string &boundary) {
 	FileData data;
-	size_t partStart = body.find(boundary);
-	size_t headerStart = body.find("Content-Disposition:", partStart);
-	size_t filenamePos = body.find("filename=\"", headerStart);
+	size_t	 partStart = body.find(boundary);
+	size_t	 headerStart = body.find("Content-Disposition:", partStart);
+	size_t	 filenamePos = body.find("filename=\"", headerStart);
 
-	if (partStart == std::string::npos || headerStart == std::string::npos ||
-		filenamePos == std::string::npos)
+	if (partStart == std::string::npos || headerStart == std::string::npos || filenamePos == std::string::npos)
 		return data;
 
 	size_t filenameEnd = body.find("\"", filenamePos + 10);
-	data.filename = sanitizeFilename(
-			body.substr(filenamePos + 10, filenameEnd - (filenamePos + 10))
-	);
+	data.filename = sanitizeFilename(body.substr(filenamePos + 10, filenameEnd - (filenamePos + 10)));
 
 	size_t contentStart = body.find("\r\n\r\n", filenameEnd) + 4;
 	size_t contentEnd = body.find(boundary, contentStart) - 2;
@@ -116,14 +112,15 @@ FileHandler::FileData FileHandler::parseMultipartData(const std::string &body, c
 
 bool FileHandler::saveUploadedFile(const std::string &filepath, const std::string &content) {
 	const size_t CHUNK_SIZE = 65536;
-	int fd = open(filepath.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
-	if (fd < 0) return false;
+	int			 fd = open(filepath.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+	if (fd < 0)
+		return false;
 
 	size_t remaining = content.length();
 	size_t offset = 0;
 
 	while (remaining > 0) {
-		size_t chunk = std::min(remaining, CHUNK_SIZE);
+		size_t	chunk = std::min(remaining, CHUNK_SIZE);
 		ssize_t written = write(fd, content.c_str() + offset, chunk);
 		if (written < 0) {
 			close(fd);
@@ -157,7 +154,7 @@ std::string FileHandler::urlDecode(const std::string &encoded) {
 	std::string decoded;
 	for (size_t i = 0; i < encoded.length(); ++i) {
 		if (encoded[i] == '%' && i + 2 < encoded.length()) {
-			int value;
+			int				   value;
 			std::istringstream iss(encoded.substr(i + 1, 2));
 			if (iss >> std::hex >> value) {
 				decoded += static_cast<char>(value);
@@ -188,14 +185,14 @@ std::string FileHandler::constructFilePath(const std::string &uri, const Locatio
 	std::string decodedUri = urlDecode(uri);
 	std::string path = location.root;
 	// Remove trailing slash from root if present
-	if (!path.empty() && path[path.length()-1] == '/')
-		path = path.substr(0, path.length()-1);
+	if (!path.empty() && path[path.length() - 1] == '/')
+		path = path.substr(0, path.length() - 1);
 	// For non-root locations in www directory
 	if (location.path != "/" && !location.path.empty() && location.root == "www") {
 		std::string locationPath = location.path;
 		if (locationPath[0] == '/')
 			locationPath = locationPath.substr(1);
-		if (!path.empty() && path[path.length()-1] != '/')
+		if (!path.empty() && path[path.length() - 1] != '/')
 			path += '/';
 		path += locationPath;
 	}
@@ -210,7 +207,7 @@ std::string FileHandler::constructFilePath(const std::string &uri, const Locatio
 	}
 	// Combine paths
 	if (!relativePath.empty()) {
-		if (!path.empty() && path[path.length()-1] != '/')
+		if (!path.empty() && path[path.length() - 1] != '/')
 			path += '/';
 		path += relativePath;
 	}
@@ -244,27 +241,42 @@ std::string FileHandler::getType(const std::string &path) {
 	std::string ext = path.substr(dot + 1);
 
 	// Text files
-	if (ext == "html" || ext == "htm") return "text/html";
-	if (ext == "css") return "text/css";
-	if (ext == "js") return "application/javascript";
-	if (ext == "json") return "application/json";
-	if (ext == "txt") return "text/plain";
-	if (ext == "xml") return "application/xml";
+	if (ext == "html" || ext == "htm")
+		return "text/html";
+	if (ext == "css")
+		return "text/css";
+	if (ext == "js")
+		return "application/javascript";
+	if (ext == "json")
+		return "application/json";
+	if (ext == "txt")
+		return "text/plain";
+	if (ext == "xml")
+		return "application/xml";
 
 	// Images
-	if (ext == "jpg" || ext == "jpeg") return "image/jpeg";
-	if (ext == "png") return "image/png";
-	if (ext == "gif") return "image/gif";
-	if (ext == "svg") return "image/svg+xml";
-	if (ext == "ico") return "image/x-icon";
+	if (ext == "jpg" || ext == "jpeg")
+		return "image/jpeg";
+	if (ext == "png")
+		return "image/png";
+	if (ext == "gif")
+		return "image/gif";
+	if (ext == "svg")
+		return "image/svg+xml";
+	if (ext == "ico")
+		return "image/x-icon";
 
 	// Documents
-	if (ext == "pdf") return "application/pdf";
+	if (ext == "pdf")
+		return "application/pdf";
 
 	// Binary/Compressed
-	if (ext == "zip") return "application/zip";
-	if (ext == "tar") return "application/x-tar";
-	if (ext == "gz") return "application/gzip";
+	if (ext == "zip")
+		return "application/zip";
+	if (ext == "tar")
+		return "application/x-tar";
+	if (ext == "gz")
+		return "application/gzip";
 
 	return "text/plain";
 }
