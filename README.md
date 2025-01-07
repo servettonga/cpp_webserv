@@ -73,6 +73,10 @@ sequenceDiagram
     Handler->>Poller: Remove Socket if Done
 ```
 
+## Preview
+
+![preview](https://github.com/user-attachments/assets/3374181a-a4fc-4380-b3a4-80c0b25513f7)
+
 ## Quick Start
 
 ```bash
@@ -90,18 +94,19 @@ curl http://localhost:8080/
 
 ```nginx
 server {
-    listen 8080;
+    port 8080;
     server_name localhost;
     root /var/www;
 
     location / {
-        index index.html;
-        methods GET POST;
+      index index.html;
+      methods GET POST;
     }
 
     location /cgi-bin {
-        cgi on;
-        cgi_extensions .php .py;
+      allowed_methods GET POST;
+      client_max_body_size 10M;
+      cgi_pass /usr/bin/python3;
     }
 }
 ```
@@ -111,6 +116,38 @@ server {
 - C++98 compiler
 - POSIX-compliant system
 - CMake 3.0+ (for building)
+
+## `siege` stress test
+
+```bash
+> siege -b 127.0.0.1:8080/empty.html -t10s
+# macOS
+Transactions:               136047 hits
+Availability:               100.00 %
+Elapsed time:               10.76 secs
+Data transferred:           0.00 MB
+Response time:              1.97 ms
+Transaction rate:           12643.77 trans/sec
+Throughput:                 0.00 MB/sec
+Concurrency:                24.89
+Successful transactions:    136047
+Failed transactions:        0
+Longest transaction:        30.00 ms
+Shortest transaction:       0.00 ms
+# ubuntu
+Transactions:               94641 hits
+Availability:               100.00 %
+Elapsed time:               9.56 secs
+Data transferred:           0.00 MB
+Response time:              0.00 ms
+Transaction rate:           9899.69 trans/sec
+Throughput:                 0.00 MB/sec
+Concurrency:                24.61
+Successful transactions:    94641,
+Failed transactions:        0
+Longest transaction:        0.01 ms
+Shortest transaction:       0.00 ms
+```
 
 ---
 
